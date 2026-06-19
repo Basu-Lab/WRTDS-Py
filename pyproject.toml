@@ -1,0 +1,17 @@
+[project]
+name = "wrtds-py"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "manuel-alvarez-chaves", email = "malvarez062@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+wrtds-py = "wrtds_py:main"
+
+[build-system]
+requires = ["uv_build>=0.11.22,<0.12.0"]
+build-backend = "uv_build"
