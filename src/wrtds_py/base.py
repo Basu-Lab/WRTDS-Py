@@ -101,7 +101,7 @@ class WRTDS:
         # 5. Extract Fast NumPy Arrays 
         sample_time = df_s['DecYear'].values
         sample_logq = df_s['LogQ'].values
-        sample_y_high = df_s['ConcHigh'].values
+        sample_y_high = np.log(df_s['ConcHigh'].values) # Concentration is fitted in log-space
         sample_uncen = df_s['Uncen'].values
         
         default_windows = (self.window_time, self.window_discharge, self.window_season)
