@@ -2,8 +2,23 @@ import warnings
 import numpy as np
 import pandas as pd
 from typing import Self
+from dataclasses import dataclass
 
 from ._estimation import estimate_surface_node
+
+@dataclass
+class WindowParams:
+    time: float
+    discharge: float
+    season: float
+
+    def as_tuple(self) -> tuple[float, float, float]:
+        return (self.time, self.discharge, self.season)
+    
+    def expand(self, factor: float = 1.1, season_cap: float = 0.5) -> None:
+        self.time *= factor
+        self.discharge *= factor
+        self.season = min(self.season * factor, season_cap)
 
 class WRTDS:
     def __init__(
@@ -16,9 +31,7 @@ class WRTDS:
         edge_adjust: bool = True
     ) -> None:
         
-        self.window_time = window_time
-        self.window_discharge = window_discharge
-        self.window_season = window_season
+        self.windows = WindowParams(window_time, window_discharge, window_season)
         self.min_num_obs = min_num_obs
         self.min_num_uncen = min_num_uncen
         self.edge_adjust = edge_adjust
@@ -104,7 +117,7 @@ class WRTDS:
         sample_y_high = np.log(df_s['ConcHigh'].values) # Concentration is fitted in log-space
         sample_uncen = df_s['Uncen'].values
         
-        default_windows = (self.window_time, self.window_discharge, self.window_season)
+        default_windows = self.windows.as_tuple()
         expansion_warnings = 0
         
         # 6. Populate Grid (Outer loop: Discharge, Inner loop: Time)
