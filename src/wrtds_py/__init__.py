@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from wrtds-py!")
+from wrtds_py.base import WRTDS
