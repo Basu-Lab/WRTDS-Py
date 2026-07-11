@@ -1,1 +1,3 @@
-from wrtds_py.base import WRTDS
+from .models.classic import WRTDS
+
+__all__ = ["WRTDS"]
