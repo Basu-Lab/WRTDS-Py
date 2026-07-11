@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
+
 @dataclass
 class WindowParams:
     time: float
@@ -40,51 +41,66 @@ class BaseWRTDS:
         self.min_num_uncen = min_num_uncen
         self.edge_adjust = edge_adjust
         
-        # Post-fit attributes initialized as None
         self.surfaces_: np.ndarray | None = None
         self.grid_logq_: np.ndarray | None = None
         self.grid_time_: np.ndarray | None = None
         self.effective_windows_: np.ndarray | None = None
         self._is_fitted: bool = False
 
+    @staticmethod
+    def calc_flux(conc: np.ndarray, q: np.ndarray, flow_unit: str = 'cms') -> np.ndarray:
+        if flow_unit == 'cms':
+            factor = 86.4
+        elif flow_unit == 'cfs':
+            factor = 2.44657555
+        else:
+            raise ValueError("flow_unit must be either 'cms' or 'cfs'.")
+
+        return conc * q * factor
+
     def _validate_data(
-        self, df_daily: pd.DataFrame, df_sample: pd.DataFrame
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        Validates DataFrames and auto-fills missing EGRET structure.
-        """
-        if not isinstance(df_daily, pd.DataFrame) or not isinstance(df_sample, pd.DataFrame):
-            raise TypeError("Inputs must be pandas DataFrames.")
+        self, df_sample: pd.DataFrame | None = None, df_daily: pd.DataFrame | None = None
+    ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+        
+        df_s = df_sample.copy() if df_sample is not None else None
+        df_d = df_daily.copy() if df_daily is not None else None
 
-        df_d = df_daily.copy()
-        df_s = df_sample.copy()
+        for df in [df_s, df_d]:
+            if df is not None:
+                if not isinstance(df.index, pd.DatetimeIndex):
+                    if 'Date' in df.columns:
+                        df.set_index('Date', inplace=True)
+                        df.index = pd.to_datetime(df.index)
+                    else:
+                        raise ValueError("DataFrames must have a DatetimeIndex or 'Date' column.")
+                if not df.index.is_monotonic_increasing:
+                    df.sort_index(inplace=True)
 
-        # Enforce DatetimeIndex
-        for df in [df_d, df_s]:
-            if not isinstance(df.index, pd.DatetimeIndex):
-                if 'Date' in df.columns:
-                    df.set_index('Date', inplace=True)
-                    df.index = pd.to_datetime(df.index)
-                else:
-                    raise ValueError("DataFrames must have a DatetimeIndex or 'Date' column.")
-            if not df.index.is_monotonic_increasing:
-                df.sort_index(inplace=True)
+        if df_d is not None:
+            if 'LogQ' not in df_d.columns:
+                if 'Q' not in df_d.columns:
+                    raise ValueError("df_daily must contain 'Q' or 'LogQ'.")
+                df_d['LogQ'] = np.log(df_d['Q'].replace(0, np.nan))
+                
+            if df_s is not None and 'LogQ' not in df_s.columns:
+                df_s['LogQ'] = df_d['LogQ'].reindex(df_s.index)
+                if df_s['LogQ'].isna().any():
+                    raise ValueError("Sample dates missing corresponding discharge in df_daily.")
+        else:
+            if df_s is not None and 'LogQ' not in df_s.columns:
+                raise ValueError("If df_daily is None, df_sample must contain 'LogQ'.")
 
-        # Discharge Handling
-        if 'LogQ' not in df_d.columns:
-            if 'Q' not in df_d.columns:
-                raise ValueError("df_daily must contain 'Q' or 'LogQ'.")
-            df_d['LogQ'] = np.log(df_d['Q'].replace(0, np.nan))
+        # Only validate concentration if a sample dataframe was actually provided
+        if df_s is not None:
+            if 'Conc' in df_s.columns and 'Uncen' in df_s.columns:
+                df_s['ConcHigh'] = df_s['Conc']
+                df_s['ConcLow'] = np.where(df_s['Uncen'] == 1, df_s['Conc'], 0.0)
+            elif 'ConcHigh' not in df_s.columns or 'Uncen' not in df_s.columns:
+                raise ValueError("df_sample must contain 'Conc' and 'Uncen'.")
 
-        if 'LogQ' not in df_s.columns:
-            df_s['LogQ'] = df_d['LogQ'].reindex(df_s.index)
-            if df_s['LogQ'].isna().any():
-                raise ValueError("Sample dates missing corresponding discharge in df_daily.")
-
-        # Spatial Coordinates (Decimal Year)
-        for df in [df_d, df_s]:
-            if 'DecYear' not in df.columns:
+        for df in [df_s, df_d]:
+            if df is not None and 'DecYear' not in df.columns:
                 days_in_year = df.index.is_leap_year.map({True: 366.0, False: 365.0})
                 df['DecYear'] = df.index.year + (df.index.dayofyear - 0.5) / days_in_year
 
-        return df_d, df_s
+        return df_s, df_d
