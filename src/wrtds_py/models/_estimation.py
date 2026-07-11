@@ -51,21 +51,20 @@ def estimate_surface_node(
     """
     Computes the localized Tobit regression for a SINGLE grid node.
     Arguments reordered to respect the (Q, Time) dimensional hierarchy.
-    """
-    w_t, w_q, w_s = windows
-    
+    """    
     # 1. Edge Adjustment (Pre-expansion)
     dist_low = target_time - dec_low
     dist_high = dec_high - target_time
     dist_time = min(dist_low, dist_high)
     
     if edge_adjust and not np.isnan(dist_time):
-        if dist_time <= w_t:
-            w_t = (2 * w_t) - dist_time
+        if dist_time <= windows.time:
+            windows.time = (2 * windows.time) - dist_time
             
     # 2. Adaptive Window Expansion Loop
     k = 1
     while True:
+        w_t, w_q, w_s = windows.as_tuple()
         weight_t = tricube_weight(target_time - sample_time, w_t)
         weight_q = tricube_weight(target_logq - sample_logq, w_q)
         weight_s = tricube_weight(cyclic_distance(target_time, sample_time), w_s)
@@ -79,10 +78,7 @@ def estimate_surface_node(
         if (n_active >= min_obs and n_uncen >= min_uncen) or k > 10000:
             break
             
-        w_t *= 1.1
-        w_q *= 1.1
-        if w_s <= 0.5:
-            w_s = min(w_s * 1.1, 0.5)
+        windows.expand()
             
         k += 1
 
@@ -141,6 +137,6 @@ def estimate_surface_node(
     conc_hat = np.exp(y_hat + (se**2) / 2.0) 
     
     results = np.array([y_hat, se, conc_hat])
-    final_windows = np.array([w_t, w_q, w_s])
+    final_windows = np.array(windows.as_tuple())
     
     return results, final_windows
