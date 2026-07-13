@@ -1,48 +1,70 @@
 import pytest
+import numpy as np
+import pandas as pd
 import rpy2.robjects as robjects
 from rpy2.robjects.packages import importr
 from rpy2.robjects import pandas2ri
+from wrtds_py import WRTDS
 
-@pytest.fixture(scope="session") # Cache the R ground truth for the entire session
-def r_egret_ground_truth():
-    # Load R packages
-    egret = importr('EGRET')
-    
-    # 1. Run the R models using raw R code
+@pytest.fixture(scope="session")
+def choptank_raw_data():
+    """
+    Fixture to load the raw Choptank eList data from EGRET.
+    Scope is 'session' so R only has to load this once per test run.
+    """
+    importr('EGRET')
     robjects.r('data(Choptank_eList, package="EGRET")')
-    robjects.r('eList_base <- EGRET::modelEstimation(Choptank_eList, verbose=FALSE)')
-    robjects.r('eList_k <- EGRET::WRTDSKalman(eList_base, rho=0.9, niter=100, seed=42)')
-    
-    # Pull the R DataFrames
-    r_base_daily = robjects.r('eList_base$Daily')
-    r_kalman_daily = robjects.r('eList_k$Daily')
-    
-    # 2. rpy2 Conversion Context
-    # We combine the default converter with the pandas converter and open a local context block.
+    r_data = robjects.r('Choptank_eList')
+
     conversion_rules = robjects.default_converter + pandas2ri.converter
     with conversion_rules.context():
-        df_base = robjects.conversion.get_conversion().rpy2py(r_base_daily)
-        df_kalman = robjects.conversion.get_conversion().rpy2py(r_kalman_daily)
+        # Convert R dataframes to Pandas
+        daily_df = robjects.conversion.get_conversion().rpy2py(r_data.rx2('Daily'))
+        sample_df = robjects.conversion.get_conversion().rpy2py(r_data.rx2('Sample'))
     
-    return {
-        "base": df_base,
-        "kalman": df_kalman
-    }
+    # Convert R numeric dates to Pandas DatetimeIndex
+    epoch = pd.Timestamp('1970-01-01')
+    
+    daily_df['datetime'] = pd.to_datetime(daily_df['Date'], unit='D', origin=epoch)
+    daily_df = daily_df.set_index('datetime')
+    
+    sample_df['datetime'] = pd.to_datetime(sample_df['Date'], unit='D', origin=epoch)
+    sample_df = sample_df.set_index('datetime')
+    
+    # Ensure Uncen is treated as an integer flag
+    sample_df['Uncen'] = sample_df['Uncen'].astype(int)
+    
+    return sample_df, daily_df
 
-# TEST 1: Standard WRTDS
-def test_standard_wrtds_output_structure(r_egret_ground_truth):
-    df = r_egret_ground_truth["base"]
+def test_python_matches_or_beats_r(choptank_raw_data):
+    """
+    Tests that the Python WRTDS implementation achieves an RMSE that is
+    less than or equal to the original R implementation.
+    """
+    df_sample, df_daily = choptank_raw_data
     
-    assert "yHat" in df.columns, "R WRTDS did not yield yHat"
-    assert "ConcDay" in df.columns, "R WRTDS did not yield ConcDay"
-    assert "FluxDay" in df.columns, "R WRTDS did not yield FluxDay"
+    # Fit the Python Model
+    model = WRTDS()
+    model.fit(df_sample, df_daily)
     
-    assert (df["ConcDay"] >= 0).all(), "Found negative concentration values"
-    assert (df["FluxDay"] >= 0).all(), "Found negative flux values"
+    # Check if the model was fitted successfully
+    assert model._is_fitted, "Model _is_fitted flag was not set to True after calling .fit()"
 
-# TEST 2: WRTDS-K
-def test_kalman_wrtds_output_structure(r_egret_ground_truth):
-    df_k = r_egret_ground_truth["kalman"]
-    
-    assert "GenConc" in df_k.columns, "R WRTDS-K did not yield GenConc"
-    assert "GenFlux" in df_k.columns, "R WRTDS-K did not yield GenFlux"
+    # Predict using the Python Model
+    y_hat_sample = model.predict(df_sample)
+
+    # Calculate RMSE for R
+    res_r = np.abs(df_sample['ConcHat'] - df_sample['ConcAve'])
+    rmse_r = np.sqrt(np.mean(res_r**2))
+
+    # Calculate RMSE for Python
+    res_py = np.abs(y_hat_sample['Conc'] - df_sample['ConcAve'])
+    rmse_py = np.sqrt(np.mean(res_py**2))
+
+    # Debugging output -> `uv run pytest -s`
+    print("\n--- Results ---")
+    print(f"RMSE of R predictions: {rmse_r:.3f} mg/L")
+    print(f"RMSE of Python predictions: {rmse_py:.3f} mg/L")
+    print("---------------")
+
+    assert rmse_py <= rmse_r + 1e-6, f"Python RMSE ({rmse_py:.3f}) is worse than R RMSE ({rmse_r:.3f})"
