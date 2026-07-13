@@ -95,3 +95,48 @@ Because WRTDS models the natural logarithm of concentration, exponentiating the 
 While early versions of the algorithm used Naihua Duan's non-parametric smearing estimator, interval-censored data prevents the exact calculation of residuals. Therefore, `wrtds_py` uses the mathematically rigorous, modern EGRET standard of evaluating the **parametric expected value** of the log-normal distribution:
 
 $$\hat{C} = \exp\left(\hat{y} + \frac{\sigma^2}{2}\right)$$
+
+Here is a clean, structured section for WRTDS-K that you can append directly to the bottom of your `notes.md` file. I have kept the style concise, modular, and focused on the core mechanics, matching the structure we used when breaking down the classic WRTDS math.
+
+---
+
+## WRTDS-Kalman (WRTDS-K)
+
+While classic WRTDS is excellent at capturing long-term trends and smooth seasonal averages, it lacks short-term memory. If a river experiences an acute pollution event on Tuesday, WRTDS-K helps model the likelihood that it is still somewhat polluted on Wednesday. It achieves this by applying an autoregressive filter to the residuals of the base WRTDS model.
+
+### 1. The Core Concept
+
+WRTDS-K improves daily predictions by calculating the difference (residual) between the actual water quality observations and the base WRTDS predictions, and then interpolating those residuals across the unobserved days between samples.
+
+### 2. Handling Censorship (Monte Carlo Simulation)
+
+Because water quality data often contains left-censored values (measurements below the laboratory detection limit), we don't always have an exact observation to calculate a perfect residual. WRTDS-K solves this probabilistically:
+
+* **Uncensored Data:** The residual is exact: $e = y_{obs} - \hat{y}$.
+* **Censored Data:** WRTDS-K runs a Monte Carlo simulation (`niter` times, typically 100). In each iteration, it draws a random "true" value from a truncated normal distribution to compute a possible residual.
+
+### 3. The AR(1) Process (Short-Term Memory)
+
+For every single day in the continuous streamflow record, the filter looks at the nearest preceding and succeeding water quality sample residuals.
+
+* It uses a continuous-time Autoregressive (AR(1)) process to interpolate the expected residual for that day.
+* The correlation decays exponentially over time, controlled by the parameter $\rho$ (typically set to **0.9**).
+* This means the "memory" or influence of a specific sampled residual decays by **10%** for each day that passes.
+
+### 4. Final Assembly
+
+For each of the Monte Carlo iterations, the algorithm performs the following assembly:
+
+1. **Recombination:** The interpolated daily residuals are added back to the daily base WRTDS predictions in log-space.
+2. **Variance Correction:** Because the AR(1) process explains some of the variance, the standard error is adjusted:
+
+$$\sigma_{adj} = \text{SE} \cdot \sqrt{\max(0, 1 - \rho^2)}$$
+
+
+3. **Transformation:** The results are exponentiated back into real space to calculate concentration:
+
+$$\text{Conc} = \exp\left(\hat{y}_{adj} + \frac{\sigma_{adj}^2}{2}\right)$$
+
+
+
+Finally, the estimated daily concentrations are averaged across all 100 iterations to produce the final **Generated Concentration (`GenConc`)** and **Generated Flux (`GenFlux`)**.
