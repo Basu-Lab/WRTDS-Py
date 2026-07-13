@@ -4,7 +4,7 @@ import pandas as pd
 from typing import Self
 from scipy.interpolate import RegularGridInterpolator
 
-from wrtds_py.base import BaseWRTDS
+from wrtds_py.base import BaseWRTDS, WindowParams
 from wrtds_py.models._estimation import estimate_surface_node, NodeConfig
 
 class WRTDS(BaseWRTDS):
@@ -48,10 +48,15 @@ class WRTDS(BaseWRTDS):
         
         expansion_warnings = 0
         
+        initial_windows = WindowParams(
+            time=self.window_time,
+            discharge=self.window_discharge,
+            season=self.window_season
+        )
+        
         for i, target_logq in enumerate(grid_logq):
             for j, target_time in enumerate(grid_time):
                 
-                self.windows.reset()
                 node_config = NodeConfig(
                     target_logq=target_logq,
                     target_time=target_time,
@@ -60,12 +65,12 @@ class WRTDS(BaseWRTDS):
                     edge_adjust=self.edge_adjust
                 )
                 
-                out = estimate_surface_node(node_config, sample_data, self.windows)
+                out = estimate_surface_node(node_config, sample_data, initial_windows)
                 
-                self.surfaces_[i, j, :] = out['results']
-                self.effective_windows_[i, j, :] = out['windows']
+                self.surfaces_[i, j, :] = [out.y_hat, out.sigma, out.conc_hat]
+                self.effective_windows_[i, j, :] = out.final_windows.as_tuple()
                 
-                if out['windows'][0] > self.windows.initial_params[0] or out['windows'][1] > self.windows.initial_params[1]:
+                if out.final_windows.time > initial_windows.time or out.final_windows.discharge > initial_windows.discharge:
                     expansion_warnings += 1
 
         if expansion_warnings > 0:
@@ -74,7 +79,6 @@ class WRTDS(BaseWRTDS):
         self.grid_logq_ = grid_logq
         self.grid_time_ = grid_time
         self._is_fitted = True
-        self.windows.reset()
         
         return self
     

@@ -2,6 +2,7 @@ import numpy as np
 from scipy.stats import norm
 from scipy.optimize import minimize
 from dataclasses import dataclass
+from typing import NamedTuple
 from wrtds_py.models.utils import tricube_weight, cyclic_distance
 from wrtds_py.base import WindowParams
 
@@ -12,6 +13,12 @@ class NodeConfig:
     min_obs: int
     min_uncen: int
     edge_adjust: bool
+
+class NodeResult(NamedTuple):
+    y_hat: float
+    sigma: float
+    conc_hat: float
+    final_windows: WindowParams
 
 def _tobit_neg_log_likelihood(params_array: np.ndarray, model_data: dict) -> float:
     params = {'beta': params_array[:-1], 'sigma': params_array[-1]}
@@ -33,20 +40,26 @@ def _tobit_neg_log_likelihood(params_array: np.ndarray, model_data: dict) -> flo
 def estimate_surface_node(
     node: NodeConfig,
     sample_data: dict,
-    windows: 'WindowParams'
-) -> dict:
+    initial_windows: WindowParams
+) -> NodeResult:
+    
+    current_windows = initial_windows
     
     dec_low = np.min(sample_data['time'])
     dec_high = np.max(sample_data['time'])
     dist_time = min(node.target_time - dec_low, dec_high - node.target_time)
     
     if node.edge_adjust and not np.isnan(dist_time):
-        if dist_time <= windows.time:
-            windows.time = (2 * windows.time) - dist_time
+        if dist_time <= current_windows.time:
+            current_windows = WindowParams(
+                time=(2 * current_windows.time) - dist_time,
+                discharge=current_windows.discharge,
+                season=current_windows.season
+            )
             
     k = 1
     while True:
-        w_t, w_q, w_s = windows.as_tuple()
+        w_t, w_q, w_s = current_windows.as_tuple()
         weight_t = tricube_weight(node.target_time - sample_data['time'], w_t)
         weight_q = tricube_weight(node.target_logq - sample_data['logq'], w_q)
         weight_s = tricube_weight(cyclic_distance(node.target_time, sample_data['time']), w_s)
@@ -58,11 +71,12 @@ def estimate_surface_node(
         
         if (n_active >= node.min_obs and n_uncen >= node.min_uncen) or k > 10000:
             break
-        windows.expand()
+        
+        current_windows = current_windows.expand()
         k += 1
 
     if k > 10000:
-        return {'results': np.array([np.nan, np.nan, np.nan]), 'windows': np.array([w_t, w_q, w_s])}
+        return NodeResult(np.nan, np.nan, np.nan, current_windows)
 
     w_active = total_weights[active_mask]
     w_active = w_active / (np.sum(w_active) / n_active)
@@ -105,7 +119,4 @@ def estimate_surface_node(
     y_hat = final_beta[0] + final_beta[3]*np.sin(2*np.pi*node.target_time) + final_beta[4]*np.cos(2*np.pi*node.target_time)
     conc_hat = np.exp(y_hat + (final_sigma**2) / 2.0) 
     
-    return {
-        'results': np.array([y_hat, final_sigma, conc_hat]), 
-        'windows': np.array(windows.as_tuple())
-    }
+    return NodeResult(y_hat, final_sigma, conc_hat, current_windows)
