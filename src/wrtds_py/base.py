@@ -72,7 +72,7 @@ class BaseWRTDS:
             if not df.index.is_monotonic_increasing:
                 df = df.sort_index()
             if 'DecYear' not in df.columns:
-                days_in_year = df.index.is_leap_year.map({True: 366.0, False: 365.0})
+                days_in_year = np.where(df.index.is_leap_year, 366.0, 365.0)
                 df['DecYear'] = df.index.year + (df.index.dayofyear - 0.5) / days_in_year
             return df
 
