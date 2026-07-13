@@ -4,67 +4,101 @@ import pandas as pd
 import rpy2.robjects as robjects
 from rpy2.robjects.packages import importr
 from rpy2.robjects import pandas2ri
+
 from wrtds_py import WRTDS
+from wrtds_py.models.kalman import WRTDSK
 
 @pytest.fixture(scope="session")
-def choptank_raw_data():
+def choptank_ground_truth():
     """
-    Fixture to load the raw Choptank eList data from EGRET.
-    Scope is 'session' so R only has to load this once per test run.
+    Fixture to load the raw Choptank eList data and run both classic 
+    WRTDS and WRTDS-K in R to serve as our ground truth.
     """
     importr('EGRET')
+    
+    # 1. Load data and run R models
     robjects.r('data(Choptank_eList, package="EGRET")')
-    r_data = robjects.r('Choptank_eList')
-
+    robjects.r('eList_base <- EGRET::modelEstimation(Choptank_eList, verbose=FALSE)')
+    robjects.r('eList_k <- EGRET::WRTDSKalman(eList_base, rho=0.9, niter=100, seed=42, verbose=FALSE)')
+    
+    # 2. Extract DataFrames
     conversion_rules = robjects.default_converter + pandas2ri.converter
     with conversion_rules.context():
-        # Convert R dataframes to Pandas
-        daily_df = robjects.conversion.get_conversion().rpy2py(r_data.rx2('Daily'))
-        sample_df = robjects.conversion.get_conversion().rpy2py(r_data.rx2('Sample'))
+        r_sample_df = robjects.conversion.get_conversion().rpy2py(robjects.r('eList_base$Sample'))
+        r_daily_k_df = robjects.conversion.get_conversion().rpy2py(robjects.r('eList_k$Daily'))
     
-    # Convert R numeric dates to Pandas DatetimeIndex
+    # 3. Data Preparation for Python
     epoch = pd.Timestamp('1970-01-01')
     
-    daily_df['datetime'] = pd.to_datetime(daily_df['Date'], unit='D', origin=epoch)
-    daily_df = daily_df.set_index('datetime')
+    df_q = r_daily_k_df.copy()
+    df_q['datetime'] = pd.to_datetime(df_q['Date'], unit='D', origin=epoch)
+    df_q = df_q.set_index('datetime')
     
-    sample_df['datetime'] = pd.to_datetime(sample_df['Date'], unit='D', origin=epoch)
-    sample_df = sample_df.set_index('datetime')
+    df_wq = r_sample_df.copy()
+    df_wq['datetime'] = pd.to_datetime(df_wq['Date'], unit='D', origin=epoch)
+    df_wq = df_wq.set_index('datetime')
+    df_wq['Uncen'] = df_wq['Uncen'].astype(int)
     
-    # Ensure Uncen is treated as an integer flag
-    sample_df['Uncen'] = sample_df['Uncen'].astype(int)
-    
-    return sample_df, daily_df
+    return df_wq, df_q
 
-def test_python_matches_or_beats_r(choptank_raw_data):
+@pytest.fixture(scope="session")
+def fitted_base_model(choptank_ground_truth):
     """
-    Tests that the Python WRTDS implementation achieves an RMSE that is
+    Fixture that fits the base Python WRTDS model exactly once per session.
+    It depends on the choptank_ground_truth fixture for data.
+    """
+    df_wq, df_q = choptank_ground_truth
+    
+    model = WRTDS()
+    model.fit(df_wq, df_q, verbose=False)
+    
+    return model
+
+def test_classic_wrtds_rmse(choptank_ground_truth, fitted_base_model):
+    """
+    Tests that the Python classic WRTDS implementation achieves an RMSE 
     less than or equal to the original R implementation.
     """
-    df_sample, df_daily = choptank_raw_data
+    df_wq, _ = choptank_ground_truth
     
-    # Fit the Python Model
-    model = WRTDS()
-    model.fit(df_sample, df_daily)
-    
-    # Check if the model was fitted successfully
-    assert model._is_fitted, "Model _is_fitted flag was not set to True after calling .fit()"
+    # Predict using the pre-fitted model
+    y_hat_wq = fitted_base_model.predict(df_wq)
 
-    # Predict using the Python Model
-    y_hat_sample = model.predict(df_sample)
-
-    # Calculate RMSE for R
-    res_r = np.abs(df_sample['ConcHat'] - df_sample['ConcAve'])
+    # R RMSE
+    res_r = np.abs(df_wq['ConcHat'] - df_wq['ConcAve'])
     rmse_r = np.sqrt(np.mean(res_r**2))
 
-    # Calculate RMSE for Python
-    res_py = np.abs(y_hat_sample['Conc'] - df_sample['ConcAve'])
+    # Python RMSE
+    res_py = np.abs(y_hat_wq['Conc'] - df_wq['ConcAve'])
     rmse_py = np.sqrt(np.mean(res_py**2))
 
-    # Debugging output -> `uv run pytest -s`
-    print("\n--- Results ---")
-    print(f"RMSE of R predictions: {rmse_r:.3f} mg/L")
-    print(f"RMSE of Python predictions: {rmse_py:.3f} mg/L")
-    print("---------------")
+    assert rmse_py <= rmse_r + 1e-6, f"Python RMSE ({rmse_py:.6f}) is worse than R RMSE ({rmse_r:.6f})"
 
-    assert rmse_py <= rmse_r + 1e-6, f"Python RMSE ({rmse_py:.3f}) is worse than R RMSE ({rmse_r:.3f})"
+def test_kalman_filter_matches_r(choptank_ground_truth, fitted_base_model):
+    """
+    Tests that the Python WRTDS-K implementation produces Generated Concentrations
+    (GenConc) that highly correlate with the R implementation.
+    """
+    df_wq, df_q = choptank_ground_truth
+    
+    # Run Kalman Filter using the pre-fitted base model
+    k_model = WRTDSK(fitted_base_model, rho=0.9, niter=100, seed=42)
+    df_q_kalman = k_model.filter(df_wq, df_q, verbose=False)
+    
+    # Compare GenConc
+    r_gen_conc = df_q['GenConc'].values
+    py_gen_conc = df_q_kalman['GenConc'].values
+    
+    correlation = np.corrcoef(r_gen_conc, py_gen_conc)[0, 1]
+    mae = np.mean(np.abs(r_gen_conc - py_gen_conc))
+    mean_val = np.mean(r_gen_conc)
+    
+    print(f"\n--- Kalman Debug Info ---")
+    print(f"Pearson Correlation: {correlation:.6f}")
+    print(f"Mean Absolute Error: {mae:.6f} (Mean Conc: {mean_val:.6f})")
+    print(f"-------------------------")
+    
+    assert correlation > 0.90, f"Kalman correlation too low: {correlation:.4f}"
+    
+    relative_error = mae / mean_val
+    assert relative_error < 0.10, f"Kalman relative error too high: {relative_error:.2%}"
