@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from typing import Self
 from scipy.interpolate import RegularGridInterpolator
+from tqdm import tqdm
 
 from wrtds_py.base import BaseWRTDS, WindowParams
 from wrtds_py.models._estimation import estimate_surface_node, NodeConfig
@@ -14,7 +15,8 @@ class WRTDS(BaseWRTDS):
         df_sample: pd.DataFrame, 
         df_daily: pd.DataFrame | None = None,
         q_min: float | None = None,
-        q_max: float | None = None
+        q_max: float | None = None,
+        verbose: bool = True
     ) -> Self:
         
         df_s, df_d = self._validate_data(df_sample, df_daily)
@@ -48,30 +50,39 @@ class WRTDS(BaseWRTDS):
         
         expansion_warnings = 0
         
+        # Instantiate the initial window parameters once
         initial_windows = WindowParams(
             time=self.window_time,
             discharge=self.window_discharge,
             season=self.window_season
         )
         
-        for i, target_logq in enumerate(grid_logq):
-            for j, target_time in enumerate(grid_time):
-                
-                node_config = NodeConfig(
-                    target_logq=target_logq,
-                    target_time=target_time,
-                    min_obs=self.min_num_obs,
-                    min_uncen=self.min_num_uncen,
-                    edge_adjust=self.edge_adjust
-                )
-                
-                out = estimate_surface_node(node_config, sample_data, initial_windows)
-                
-                self.surfaces_[i, j, :] = [out.y_hat, out.sigma, out.conc_hat]
-                self.effective_windows_[i, j, :] = out.final_windows.as_tuple()
-                
-                if out.final_windows.time > initial_windows.time or out.final_windows.discharge > initial_windows.discharge:
-                    expansion_warnings += 1
+        total_nodes = num_q_nodes * num_time_nodes
+        
+        with tqdm(total=total_nodes, disable=not verbose, desc="Fitting WRTDS", ascii=True) as pbar:
+            for i, target_logq in enumerate(grid_logq):
+                for j, target_time in enumerate(grid_time):
+                    
+                    node_config = NodeConfig(
+                        target_logq=target_logq,
+                        target_time=target_time,
+                        min_obs=self.min_num_obs,
+                        min_uncen=self.min_num_uncen,
+                        edge_adjust=self.edge_adjust
+                    )
+                    
+                    # Pass the initial window explicitly
+                    out = estimate_surface_node(node_config, sample_data, initial_windows)
+                    
+                    # Unpack utilizing the new NamedTuple return structure
+                    self.surfaces_[i, j, :] = [out.y_hat, out.sigma, out.conc_hat]
+                    self.effective_windows_[i, j, :] = out.final_windows.as_tuple()
+                    
+                    # Compare the returned window's attributes to the initial to detect expansions
+                    if out.final_windows.time > initial_windows.time or out.final_windows.discharge > initial_windows.discharge:
+                        expansion_warnings += 1
+                        
+                    pbar.update(1)
 
         if expansion_warnings > 0:
             warnings.warn(f"Adaptive window expansion triggered for {expansion_warnings} nodes.")
