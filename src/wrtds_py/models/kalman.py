@@ -21,12 +21,14 @@ class WRTDSK:
         if self.seed is not None:
             np.random.seed(self.seed)
 
+        df_s, df_d = self.base_model._validate_data(df_sample, df_daily)
+
         # 1. Get base predictions for both dataframes
-        df_s_pred = self.base_model.predict(df_sample)
-        df_d_pred = self.base_model.predict(df_daily)
+        df_s_pred = self.base_model.predict(df_s)
+        df_d_pred = self.base_model.predict(df_d)
 
         # 2. Prepare arrays for the AR(1) math
-        y_obs = np.log(df_s_pred['ConcHigh'].values)
+        y_obs = np.log(df_s_pred['Conc'].values)
         y_hat_s = df_s_pred['yHat'].values
         se_s = df_s_pred['SE'].values
         uncen = df_s_pred['Uncen'].values
