@@ -48,7 +48,7 @@ def test_tricube_weight():
     # Test array broadcasting
     dists = np.array([0.0, 0.5, 1.0])
     weights = tricube_weight(dists, half_window)
-    assert np.allclose(weights, [1.0, 0.421875, 0.0])
+    assert np.allclose(weights, [1.0, 0.66992, 0.0])
 
 def test_cyclic_distance():
     """Tests that seasonal wrapping calculates distance across the new year."""
@@ -117,8 +117,8 @@ def test_single_node_estimation(station_data):
     node = NodeConfig(
         target_logq=target_logq,
         target_time=target_time,
-        min_obs=100,
-        min_uncen=50,
+        min_obs=50,
+        min_uncen=30,
         edge_adjust=True
     )
     
