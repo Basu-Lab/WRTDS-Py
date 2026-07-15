@@ -1,10 +1,13 @@
 import numpy as np
-from scipy.stats import norm
 from scipy.optimize import minimize
+from scipy.special import erf
 from dataclasses import dataclass
 from typing import NamedTuple
 from wrtds_py.models.utils import tricube_weight, cyclic_distance
 from wrtds_py.base import WindowParams
+
+# Precompute for speed
+LOG_SQRT_2_PI = 0.5 * np.log(2 * np.pi)
 
 @dataclass
 class NodeConfig:
@@ -21,18 +24,22 @@ class NodeResult(NamedTuple):
     final_windows: WindowParams
 
 def _tobit_neg_log_likelihood(params_array: np.ndarray, model_data: dict) -> float:
-    params = {'beta': params_array[:-1], 'sigma': params_array[-1]}
+    params_beta = params_array[:-1]
+    params_sigma = params_array[-1]
     
-    if params['sigma'] <= 1e-5:
+    if params_sigma <= 1e-5:
         return 1e10 
         
-    mu = model_data['X'] @ params['beta']
-    z = (model_data['y_high'] - mu) / params['sigma']
+    mu = model_data['X'] @ params_beta
+    # 'y' is now either the observation or the detection limit
+    z = (model_data['y'] - mu) / params_sigma 
     
-    log_pdf = norm.logpdf(z) - np.log(params['sigma'])
+    # Fast Log PDF (Uncensored)
+    log_pdf = -0.5 * (z**2) - LOG_SQRT_2_PI - np.log(params_sigma)
     ll_uncen = model_data['weights'] * model_data['uncen'] * log_pdf
     
-    cdf = np.clip(norm.cdf(z), 1e-10, 1.0)
+    # Fast CDF (Left-Censored)
+    cdf = np.clip(0.5 * (1.0 + erf(z / np.sqrt(2.0))), 1e-10, 1.0)
     ll_cen = model_data['weights'] * (1 - model_data['uncen']) * np.log(cdf)
     
     return -np.sum(ll_uncen + ll_cen)
@@ -57,12 +64,18 @@ def estimate_surface_node(
                 season=current_windows.season
             )
             
+    # Calculate static distances ONCE outside the loop for speed
+    dist_t_static = node.target_time - sample_data['time']
+    dist_q_static = node.target_logq - sample_data['logq']
+    dist_s_static = cyclic_distance(node.target_time, sample_data['time'])
+            
     k = 1
     while True:
         w_t, w_q, w_s = current_windows.as_tuple()
-        weight_t = tricube_weight(node.target_time - sample_data['time'], w_t)
-        weight_q = tricube_weight(node.target_logq - sample_data['logq'], w_q)
-        weight_s = tricube_weight(cyclic_distance(node.target_time, sample_data['time']), w_s)
+        
+        weight_t = tricube_weight(dist_t_static, w_t)
+        weight_q = tricube_weight(dist_q_static, w_q)
+        weight_s = tricube_weight(dist_s_static, w_s)
         
         total_weights = weight_t * weight_q * weight_s
         active_mask = total_weights > 0
@@ -83,7 +96,7 @@ def estimate_surface_node(
     
     t_active = sample_data['time'][active_mask]
     q_active = sample_data['logq'][active_mask]
-    y_high = sample_data['y_high'][active_mask]
+    y_active = sample_data['y'][active_mask] # Updated
     uncen = sample_data['uncen'][active_mask]
     
     X = np.column_stack((
@@ -96,14 +109,14 @@ def estimate_surface_node(
     
     W = np.diag(w_active)
     try:
-        beta_init = np.linalg.inv(X.T @ W @ X) @ X.T @ W @ y_high
-        res_init = y_high - (X @ beta_init)
+        beta_init = np.linalg.inv(X.T @ W @ X) @ X.T @ W @ y_active
+        res_init = y_active - (X @ beta_init)
         sigma_init = max(np.sqrt(np.average(res_init**2, weights=w_active)), 0.05) 
     except np.linalg.LinAlgError:
         beta_init = np.zeros(5)
         sigma_init = 1.0
         
-    model_data = {'X': X, 'y_high': y_high, 'uncen': uncen, 'weights': w_active}
+    model_data = {'X': X, 'y': y_active, 'uncen': uncen, 'weights': w_active} # Updated
     
     result = minimize(
         _tobit_neg_log_likelihood, 
