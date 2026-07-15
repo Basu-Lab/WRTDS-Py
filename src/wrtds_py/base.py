@@ -24,8 +24,8 @@ class BaseWRTDS:
         window_time: float = 7.0, 
         window_discharge: float = 2.0, 
         window_season: float = 0.5,
-        min_num_obs: int = 100, 
-        min_num_uncen: int = 50, 
+        min_num_obs: int = 50, 
+        min_num_uncen: int = 30, 
         edge_adjust: bool = True
     ) -> None:
         
