@@ -110,6 +110,6 @@ class WRTDS(BaseWRTDS):
         df_out = df.copy()
         df_out['yHat'] = interp_yhat(points)
         df_out['SE'] = interp_se(points)
-        df_out['Conc'] = interp_conc(points)
+        df_out['ConcHat'] = interp_conc(points)
             
         return df_out
