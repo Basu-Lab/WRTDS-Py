@@ -39,7 +39,7 @@ class BaseWRTDS:
         self.min_num_uncen = min_num_uncen
         self.adjust_edges = adjust_edges
         
-        self.surfaces_: np.ndarray | None = None
+        self.surface_: np.ndarray | None = None
         self.grid_logq_: np.ndarray | None = None
         self.grid_time_: np.ndarray | None = None
         self.effective_windows_: np.ndarray | None = None

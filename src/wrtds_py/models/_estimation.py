@@ -12,7 +12,7 @@ class NodeConfig(NamedTuple):
     target_time: float
     min_obs: int
     min_uncen: int
-    edge_adjust: bool
+    adjust_edges: bool
 
 class NodeResult(NamedTuple):
     y_hat: float

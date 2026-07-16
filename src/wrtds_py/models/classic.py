@@ -113,9 +113,9 @@ class WRTDS(BaseWRTDS):
         points = np.column_stack((target_logq, target_time))
         
         # Interpolate the fitted surface to get predictions
-        interp_yhat = RegularGridInterpolator((self.grid_logq_, self.grid_time_), self.surfaces_[:, :, 0], method='linear')
-        interp_se = RegularGridInterpolator((self.grid_logq_, self.grid_time_), self.surfaces_[:, :, 1], method='linear')
-        interp_conc = RegularGridInterpolator((self.grid_logq_, self.grid_time_), self.surfaces_[:, :, 2], method='linear')
+        interp_yhat = RegularGridInterpolator((self.grid_logq_, self.grid_time_), self.surface_[:, :, 0], method='linear')
+        interp_se = RegularGridInterpolator((self.grid_logq_, self.grid_time_), self.surface_[:, :, 1], method='linear')
+        interp_conc = RegularGridInterpolator((self.grid_logq_, self.grid_time_), self.surface_[:, :, 2], method='linear')
         
         df_out = df.copy()
         df_out['yHat'] = interp_yhat(points)
