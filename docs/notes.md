@@ -96,8 +96,6 @@ While early versions of the algorithm used Naihua Duan's non-parametric smearing
 
 $$\hat{C} = \exp\left(\hat{y} + \frac{\sigma^2}{2}\right)$$
 
-Here is a clean, structured section for WRTDS-K that you can append directly to the bottom of your `notes.md` file. I have kept the style concise, modular, and focused on the core mechanics, matching the structure we used when breaking down the classic WRTDS math.
-
 ---
 
 ## WRTDS-Kalman (WRTDS-K)
