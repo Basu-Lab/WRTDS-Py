@@ -2,10 +2,26 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.special import erf
 from typing import NamedTuple
-from wrtds_py.models.utils import tricube_weight, cyclic_distance
-from wrtds_py.base import WindowParams
+from wrtds_py.weighting import tricube_weight, cyclic_distance
+from dataclasses import dataclass
 
 _LOG_SQRT_2_PI = 0.5 * np.log(2 * np.pi)
+
+@dataclass(frozen=True)
+class WindowParams:
+    time: float
+    discharge: float
+    season: float
+
+    def as_tuple(self) -> tuple[float, float, float]:
+        return (self.time, self.discharge, self.season)
+    
+    def expand(self, factor: float = 1.1, season_cap: float = 0.5) -> 'WindowParams':
+        return WindowParams(
+            time=self.time * factor,
+            discharge=self.discharge * factor,
+            season=min(self.season * factor, season_cap)
+        )
 
 class NodeConfig(NamedTuple):
     target_logq: float

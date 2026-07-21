@@ -5,8 +5,8 @@ from typing import Self
 from scipy.interpolate import RegularGridInterpolator
 from tqdm import tqdm
 
-from wrtds_py.base import BaseWRTDS, WindowParams
-from wrtds_py.models._estimation import estimate_surface_node, NodeConfig
+from wrtds_py.models.base import BaseWRTDS
+from wrtds_py.estimation import estimate_surface_node, NodeConfig, WindowParams
 
 class WRTDS(BaseWRTDS):
     
@@ -20,7 +20,7 @@ class WRTDS(BaseWRTDS):
     ) -> Self:
         
         # Validate the input DataFrames
-        df_wq_clean, df_q_clean = self._validate_data(df_wq, df_q)
+        df_wq_clean, df_q_clean = self._prepare_data(df_wq, df_q)
         
         if df_q_clean is not None:
             min_logq = df_q_clean['LogQ'].min() - 0.01 if q_min is None else q_min
@@ -105,7 +105,7 @@ class WRTDS(BaseWRTDS):
             raise RuntimeError("The model is not fitted yet. Call .fit() first.")
         
         # Clean df as if it were 'df_q'
-        _, df_clean = self._validate_data(df_wq=None, df_q=df)
+        _, df_clean = self._prepare_data(df_wq=None, df_q=df)
         
         # Clip the target values to the grid range to prevent extrapolation
         target_time = np.clip(df_clean['DecYear'].values, self.grid_time_.min(), self.grid_time_.max())

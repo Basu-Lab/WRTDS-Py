@@ -3,9 +3,8 @@ import numpy as np
 import pandas as pd
 
 from wrtds_py import WRTDS
-from wrtds_py.base import WindowParams
-from wrtds_py.models.utils import tricube_weight, cyclic_distance
-from wrtds_py.models._estimation import estimate_surface_node, NodeConfig
+from wrtds_py.weighting import tricube_weight, cyclic_distance
+from wrtds_py.estimation import estimate_surface_node, NodeConfig, WindowParams
 
 @pytest.fixture(scope="session")
 def station_data():
@@ -78,7 +77,7 @@ def test_data_validation(station_data):
     df_wq, df_q = station_data
     model = WRTDS()
     
-    df_wq_clean, df_q_clean = model._validate_data(df_wq, df_q)
+    df_wq_clean, df_q_clean = model._prepare_data(df_wq, df_q)
     
     # Check that DecYear was successfully mapped onto the indexes
     assert 'DecYear' in df_wq_clean.columns
@@ -100,7 +99,7 @@ def test_single_node_estimation(station_data):
     model = WRTDS()
     
     # 1. Prep data using the model's internal validator
-    df_wq_clean, _ = model._validate_data(df_wq, df_q)
+    df_wq_clean, _ = model._prepare_data(df_wq, df_q)
     
     sample_data = {
         'time': df_wq_clean['DecYear'].values,

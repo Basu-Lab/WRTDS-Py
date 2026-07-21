@@ -20,7 +20,7 @@ class WRTDSK:
         if self.seed is not None:
             np.random.seed(self.seed)
 
-        df_wq_clean, df_q_clean = self.base_model._validate_data(df_wq, df_q)
+        df_wq_clean, df_q_clean = self.base_model._prepare_data(df_wq, df_q)
 
         # Get predictions from the base WRTDS model
         df_wq_pred = self.base_model.predict(df_wq_clean)
