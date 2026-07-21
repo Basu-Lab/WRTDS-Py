@@ -2,12 +2,24 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Pytest (Choptank)",
+            "name": "Debug R Reference",
             "type": "debugpy",
             "request": "launch",
             "module": "pytest",
             "args": [
                 "tests/test_r_reference.py",
+                "-s"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Debug Components",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "tests/test_components.py",
                 "-s"
             ],
             "console": "integratedTerminal",
