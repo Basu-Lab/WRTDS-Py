@@ -88,9 +88,8 @@ def test_data_validation(station_data):
     assert 'LogQ' in df_q_clean.columns
     assert 'LogQ' in df_wq_clean.columns
     
-    # Check that Concentration arrays were split for Tobit
-    assert 'ConcHigh' in df_wq_clean.columns
-    assert 'ConcLow' in df_wq_clean.columns
+    # Check that LogConc was created and populated
+    assert 'LogConc' in df_wq_clean.columns
 
 def test_single_node_estimation(station_data):
     """
@@ -106,7 +105,7 @@ def test_single_node_estimation(station_data):
     sample_data = {
         'time': df_wq_clean['DecYear'].values,
         'logq': df_wq_clean['LogQ'].values,
-        'y_high': np.log(df_wq_clean['ConcHigh'].values),
+        'y': df_wq_clean['LogConc'].values,
         'uncen': df_wq_clean['Uncen'].values
     }
     
@@ -119,7 +118,7 @@ def test_single_node_estimation(station_data):
         target_time=target_time,
         min_obs=50,
         min_uncen=30,
-        edge_adjust=True
+        adjust_edges=True
     )
     
     initial_windows = WindowParams(time=7.0, discharge=2.0, season=0.5)

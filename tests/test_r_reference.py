@@ -16,18 +16,18 @@ def choptank_ground_truth():
     """
     importr('EGRET')
     
-    # 1. Load data and run R models
+    # Load data and run R models
     robjects.r('data(Choptank_eList, package="EGRET")')
     robjects.r('eList_base <- EGRET::modelEstimation(Choptank_eList, verbose=FALSE)')
     robjects.r('eList_k <- EGRET::WRTDSKalman(eList_base, rho=0.9, niter=100, seed=42, verbose=FALSE)')
     
-    # 2. Extract DataFrames
+    # Extract DataFrames
     conversion_rules = robjects.default_converter + pandas2ri.converter
     with conversion_rules.context():
         r_sample_df = robjects.conversion.get_conversion().rpy2py(robjects.r('eList_base$Sample'))
         r_daily_k_df = robjects.conversion.get_conversion().rpy2py(robjects.r('eList_k$Daily'))
     
-    # 3. Data Preparation for Python
+    # Data Preparation for Python
     epoch = pd.Timestamp('1970-01-01')
     
     df_q = r_daily_k_df.copy()
@@ -38,6 +38,7 @@ def choptank_ground_truth():
     df_wq['datetime'] = pd.to_datetime(df_wq['Date'], unit='D', origin=epoch)
     df_wq = df_wq.set_index('datetime')
     df_wq['Uncen'] = df_wq['Uncen'].astype(int)
+    df_wq['Conc'] = df_wq['ConcHigh'].values
     
     return df_wq, df_q
 
@@ -69,7 +70,7 @@ def test_classic_wrtds_rmse(choptank_ground_truth, fitted_base_model):
     rmse_r = np.sqrt(np.mean(res_r**2))
 
     # Python RMSE
-    res_py = np.abs(y_hat_wq['Conc'] - df_wq['ConcAve'])
+    res_py = np.abs(y_hat_wq['ConcHat'] - df_wq['ConcAve'])
     rmse_py = np.sqrt(np.mean(res_py**2))
 
     assert rmse_py <= rmse_r + 1e-6, f"Python RMSE ({rmse_py:.6f}) is worse than R RMSE ({rmse_r:.6f})"
