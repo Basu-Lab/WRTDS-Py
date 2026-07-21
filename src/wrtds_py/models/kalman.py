@@ -3,7 +3,6 @@ import pandas as pd
 from tqdm import tqdm
 from scipy.stats import truncnorm
 
-from wrtds_py.base import BaseWRTDS
 from wrtds_py.models.classic import WRTDS
 
 class WRTDSK:
@@ -39,12 +38,12 @@ class WRTDSK:
         n_wq = len(df_wq_pred)
         n_q = len(df_q_pred)
         
-        conc = np.zeros(n_wq) # array to store samples
+        conc = np.zeros(n_q) # array to store samples
         
-        # 3. Monte Carlo Iterations
+        # Sampling residuals
         with tqdm(total=self.niter, disable=not verbose, desc="Running WRTDS-K", ascii=True) as pbar:
             for _ in range(self.niter):
-                # a) Generate residuals for this iteration
+                # Calculate residuals for this iteration
                 residuals_iter = np.zeros(n_wq)
                 
                 for i in range(n_wq):
