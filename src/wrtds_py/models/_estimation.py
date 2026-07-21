@@ -51,7 +51,7 @@ def estimate_surface_node(
     
     current_windows = initial_window
     
-    # Calculate the distance to the nearest edge of the sampe data
+    # Calculate the distance to the nearest edge of the sample data
     dec_low = np.min(sample_data['time'])
     dec_high = np.max(sample_data['time'])
     dist_time = min(node.target_time - dec_low, dec_high - node.target_time)
