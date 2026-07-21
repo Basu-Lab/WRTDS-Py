@@ -108,7 +108,7 @@ class BaseWRTDS:
             if 'Conc' in df_wq.columns and 'Uncen' in df_wq.columns:
                 df_wq['LogConc'] = np.log(df_wq['Conc'].replace(0, np.nan))
                 df_wq['Uncen'] = df_wq['Uncen'].astype(int)
-            elif 'ConcHigh' not in df_wq.columns or 'Uncen' not in df_wq.columns:
+            else:
                 raise ValueError("df_wq must contain both 'Conc' and 'Uncen'.")
 
         return df_wq, df_q
