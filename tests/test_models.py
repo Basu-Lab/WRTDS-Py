@@ -4,9 +4,6 @@ import pytest
 
 from wrtds_py import WRTDS
 from wrtds_py.models.kalman import WRTDSK
-from wrtds_py.data import prepare_data
-from wrtds_py.flux import calc_flux
-from wrtds_py.estimation import estimate_surface_node, NodeConfig, WindowParams
 
 # --------------------------------------------------------------------------
 # Synthetic data
@@ -70,7 +67,7 @@ def synthetic_data():
 # End-to-end tests for WRTDS and WRTDS-K
 # --------------------------------------------------------------------------
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def fitted_base_model(synthetic_data):
     df_wq, df_q = synthetic_data
     
