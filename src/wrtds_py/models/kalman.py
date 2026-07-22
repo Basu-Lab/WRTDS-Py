@@ -39,25 +39,26 @@ class WRTDSK:
         n_q = len(df_q_pred)
         
         conc = np.zeros(n_q) # array to store samples
-        
+
+        # Prepare residuals for the AR(1) model
+        residuals = y_obs - y_hat
+
+        censored_mask = (uncen == 0)
+        num_censored = np.sum(censored_mask)
+
+        if num_censored > 0:
+            # Truncation bounds for the truncated normal distribution for censored data
+            a_vec = np.full(num_censored, -np.inf) # Smallest possible value for left-censor data
+            b_vec = residuals[censored_mask] # Difference between 'detection limit' and predicted value
+            b_vec = b_vec / se[censored_mask] # truncnorm expects z-scores, so we use the standard error to scale
+
         # Sampling residuals
         with tqdm(total=self.niter, disable=not verbose, desc="Running WRTDS-K", ascii=True) as pbar:
             for _ in range(self.niter):
-                # Calculate residuals for this iteration
-                residuals_iter = np.zeros(n_wq)
-                
-                for i in range(n_wq):
-                    if uncen[i] == 1:
-                        # Exact residual for uncensored data
-                        residuals_iter[i] = y_obs[i] - y_hat[i]
-                    else:
-                        # Draw a possible residual from a truncated normal distribution
-                        # Log-space
-                        a = -np.inf # Smallest possible value for left-censor data
-                        b = (y_obs[i] - y_hat[i]) # Difference between 'detection limit' and predicted value
-                        b = b / se[i] # truncnorm expects z-scores, so we use the standard error to scale
-                        draw = truncnorm.rvs(a, b) # 1 sample
-                        residuals_iter[i] = draw * se[i] # Re-scale back to log-space
+                residuals_iter = residuals.copy() # base residuals
+                if num_censored > 0: # censored data
+                    samples = truncnorm.rvs(a_vec, b_vec, size=num_censored) # samples for censored data
+                    residuals_iter[censored_mask] = samples * se[censored_mask] # re-scale back to log-space
                 
                 # Generate residuals for 'q' data using the AR(1) model
                 daily_res_interp = np.zeros(n_q)
