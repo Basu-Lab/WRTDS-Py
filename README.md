@@ -36,8 +36,8 @@ For a detailed explanation of the underlying statistical methods, including the 
 ### Using `uv` (Recommended)
 
 ```bash
-git clone [https://github.com/your-username/wrtds-py.git](https://github.com/your-username/wrtds-py.git)
-cd wrtds-py
+git clone https://github.com/Basu-Lab/WRTDS-Py
+cd WRTDS-Py
 uv sync
 ```
 *(Or `uv pip install -e .` if you are installing it into an existing environment).*
@@ -45,8 +45,8 @@ uv sync
 ### Using standard `pip`
 
 ```bash
-git clone [https://github.com/your-username/wrtds-py.git](https://github.com/your-username/wrtds-py.git)
-cd wrtds-py
+git clone https://github.com/Basu-Lab/WRTDS-Py
+cd WRTDS-Py
 pip install .
 ```
 
