@@ -4,14 +4,14 @@
 
 **Weighted Regressions on Time, Discharge, and Season (WRTDS)** is statistical model designed to estimate water quality concentrations and mass flux (load) in rivers.
 
-WRTDS is a localized, non-parametric model. Using continous daily discharge data and sparse water-quality samples, it builds a regression surface that can be used to predict concetrations for any 'time', 'discharge' and 'season' combination.
+WRTDS is a localized, non-parametric model. Using continuous daily discharge data and sparse water-quality samples, it builds a regression surface that can be used to predict concentrations for any 'time', 'discharge' and 'season' combination.
 
-The `wrtds_py` package is a Python implementation of the WRTDS algorithm as implmented in the [`EGRET`](https://github.com/DOI-USGS/EGRET) R package developed by the U.S. Geological Survey.
+The `wrtds_py` package is a Python implementation of the WRTDS algorithm similar to that implemented in the [`EGRET`](https://github.com/DOI-USGS/EGRET) R package developed by the U.S. Geological Survey.
 
 **References**:
 
-* Hirsch, R., DeCicco, L., & Murphy, J. (2025). *Exploration and Graphics for RivEr Trends (EGRET)*. U.S. Geological Survey. https://pubs.usgs.gov/tm/04/a10/
 * Hirsch, R. M., Moyer, D. L., & Archfield, S. A. (2010). *Weighted Regressions on Time, Discharge, and Season (WRTDS), with an Application to Chesapeake Bay River Inputs*. Journal of the American Water Resources Association, 46(5), 857–880. https://doi.org/10.1111/j.1752-1688.2010.00482.x
+* Hirsch, R., DeCicco, L., & Murphy, J. (2025). *Exploration and Graphics for RivEr Trends (EGRET)*. U.S. Geological Survey. https://pubs.usgs.gov/tm/04/a10/
 * Zhang, Q., & Hirsch, R. M. (2019). *River Water-Quality Concentration and Flux Estimation Can be Improved by Accounting for Serial Correlation Through an Autoregressive Model*. Water Resources Research, 55(11), 9705–9723. https://doi.org/10.1029/2019WR025338
 
 
@@ -19,27 +19,27 @@ The `wrtds_py` package is a Python implementation of the WRTDS algorithm as impl
 
 ## 2. Data
 
-For this initial implementation we use very similar data structures to those used in the original EGRET R package and the whole USGS data ecosystem. Instead of an `eList` object, we use two separate DataFrames: `df_q` and `df_wq`, matching the parameter names used throughout the `wrtds_py` API (e.g. `WRTDS.fit(df_wq, df_q)`).
+For this Python version we use very similar data structures to those used in the original EGRET R package and the whole USGS data ecosystem. Instead of an `eList` object, we use two separate DataFrames: `df_q` and `df_wq`.
 
-### `df_q` (Continuous Discharge Record)
+### `df_q`: Continuous Discharge Record
 
 | Column | Description |
 | --- | --- |
 | **`Date`** | pandas `DatetimeIndex` representing every continuous day. |
-| **`Q`** | Raw daily mean streamflow (discharge) in any units (cfs, m³/s). |
+| **`Q`** | Raw daily mean streamflow (discharge) in any units (e.g. cfs, m³/s). |
 | **`LogQ`** | Natural logarithm of streamflow ($\ln(Q)$). Computed automatically from `Q` if not supplied. |
 | **`DecYear`** | Decimal year representation of the date (e.g., 2010.5 for July 1). This is the `time` variable. Computed automatically from the index if not supplied. |
 
-### `df_wq` (Sparse Water Quality Record)
+### `df_wq`: Sparse Water Quality Record
 
 | Column | Description |
 | --- | --- |
-| **`Conc`** | The recorded concentration. For censored data (e.g. reported as `< 0.05`), this is the detection limit itself (e.g. `0.05`), not the true (unknown) value. |
+| **`Conc`** | The recorded concentration (water quality feature). For censored data (e.g. reported as `< 0.05`), this is the detection limit itself (e.g. `0.05`), not the true (unknown) value. |
 | **`Uncen`** | Binary flag (`1` = true detection, `0` = censored/below detection limit). |
-| **`LogQ`** | Natural logarithm of streamflow at the sample date. If not supplied directly, it is mapped from `df_q` by matching on date — every sample date must therefore exist in `df_q`'s index. |
+| **`LogQ`** | Natural logarithm of streamflow at the sample date. If not supplied directly, it is mapped from `df_q` by matching on date. Every sample date must therefore exist in `df_q`'s index. |
 | **`DecYear`** | Decimal year of the sample date. Computed automatically from the index if not supplied. |
 
-Note: unlike `EGRET`, which represents censored samples with a `ConcLow`/`ConcHigh` interval, `wrtds_py` only supports a single left-censoring bound (the detection limit) via `Conc` + `Uncen`. See §5 for how this is handled in the regression.
+Note: unlike `EGRET`, which represents censored samples with a `ConcLow`/`ConcHigh` interval, `wrtds_py` only supports a single left-censoring bound (i.e. the detection limit) via `Conc` + `Uncen`.
 
 ---
 
@@ -47,14 +47,13 @@ Note: unlike `EGRET`, which represents censored samples with a `ConcLow`/`ConcHi
 
 The whole point of WRTDS is to pre-compute a 3D grid of discharge, time and concentration. Predictions are generated later via interpolation.
 
-* **`surface_` shape:** `(14, N, 3)`
-* **Dimension 1 (Discharge):** 14 equally spaced $\ln(Q)$ nodes spanning the minimum to maximum historical daily flows, stored in `grid_logq_`.
-* **Dimension 2 (Time/Season):** $N$ time nodes, strictly stepped at exactly 16 increments per calendar year to perfectly capture seasonal cycles without overfitting, stored in `grid_time_`.
-* **Dimension 3 (Outputs):** `[yHat, SE, ConcHat]` for every intersection in the grid.
+* **`surface_` shape:** (discharge, time, outputs)
+* **Dimension 1 (Discharge):** Typically 14 equally spaced $\ln(Q)$ nodes spanning the minimum to maximum historical daily flows, stored in `grid_logq_`.
+* **Dimension 2 (Time/Season):** $N$ time nodes, stepped at exactly 1/16 of a calendar year to capture seasonal cycles, stored in `grid_time_`. $N$ is `max_time` minus `min_time` divided by 1/16, rounded up to the nearest integer.
+* **Dimension 3 (Outputs):** `[yHat, SE, ConcHat]` for every node in the grid. `yHat` is the predicted log-concentration, `SE` is the standard error of the prediction, and `ConcHat` is the bias-corrected concentration in real units (i.e. $mg/L$).
 
 The effective (possibly expanded — see below) window used to fit each node is stored separately in `effective_windows_`, with the same `(14, N, 3)` shape but holding `[window_time, window_discharge, window_season]` instead.
 
----
 
 ## 4. The Weighting System
 
@@ -62,83 +61,93 @@ For a specific target node in the grid, every historical sample is assigned a we
 
 $$w = \begin{cases} \left(1 - \left(\frac{d}{h}\right)^3\right)^3 & \text{if } d \le h \\ 0 & \text{if } d > h \end{cases}$$
 
-Where $d$ is the distance and $h$ is the half-window bandwidth. The total weight applied to a sample is the product of all three dimensions: $W = w_{time} \cdot w_{discharge} \cdot w_{season}$. Seasonality is calculated cyclically, with a maximum possible distance of 0.5 years.
+Where $d$ is the distance and $h$ is the half-window bandwidth. The total weight applied to a sample is the product of all three dimensions: $W = w_{time} \cdot w_{discharge} \cdot w_{season}$.
 
-### Adaptive Window Expansion
+The default half-window bandwidths are:
+* **`window_time`** = 7 years
+* **`window_discharge`** = 2 log-units
+* **`window_season`** = 0.5 years (i.e. 6 months)
 
-If a grid node lacks sufficient data to run a robust regression (e.g., during extreme historical floods), the algorithm dynamically adapts:
+If a sample is outside the half-window in any dimension, it receives a weight of zero and is excluded from the regression. 
 
-1. **Edge Adjustment:** Pre-expands the time window asymmetrically if the node is at the very beginning or end of the historical record.
-2. **Iterative Expansion:** Multiplies the spatial windows by 1.1 iteratively until the minimum observation thresholds (`min_num_obs`, `min_num_uncen`) are met.
+If a node is very close to the edge of the historical record (e.g., the first or last year of data), the algorithm automatically pre-expands the time window asymmetrically to ensure that enough samples are included in the regression.
 
----
+If a node has too few samples to run a regression, the algorithm automatically expands the half-window bandwidths until a minimum number of observations is met i.e. `min_num_obs` and `min_num_uncen`. This is done in incremental steps of $10\%$.
 
-## 5. The Regression Engine (Tobit MLE)
+## 5. Weighted Linear Regression with Censored Data
 
-Because water quality data includes censored "less-than" values, Ordinary Least Squares (OLS) produces mathematically biased results. `wrtds_py` implements a **left-censored Tobit regression**, solved via Maximum Likelihood Estimation. This is a single-bound formulation (the detection limit) rather than the interval-censored (`ConcLow`/`ConcHigh`) formulation `EGRET` supports — see §2.
+Because water quality data includes censored "less-than" values (i.e. detection limits), Ordinary Least Squares (OLS) would produce mathematically biased results. `wrtds_py` implements a **left-censored regression** also known as **Tobit regression**, solved via Maximum Likelihood Estimation (MLE).
 
-### Centered Design Matrix
+`EGRET` supports a more general interval-censored regression (`ConcLow`/`ConcHigh`) but this is not implemented in `wrtds_py`. We only support left-censored regression because it is the most common case in water quality data.
 
-To dramatically optimize the math, the local matrix is centered on the target node. This forces $(t_{sample} - t_{target}) = 0$ at the point of prediction, meaning the prediction (`yHat`) simplifies entirely to the intercept and the seasonal terms:
+### Design Matrix
 
-$$y = \beta_0 + \beta_1(t - t_{tgt}) + \beta_2(\ln(Q) - \ln(Q)_{tgt}) + \beta_3\sin(2\pi t) + \beta_4\cos(2\pi t) + \epsilon$$
+To optimize the math, the design matrix is centered on the target node. This forces $(t_{active} - t_{target}) = 0$ at the point of prediction, meaning the prediction (`yHat`) simplifies entirely to the intercept and the seasonal terms. Yet the general regression equation is still:
 
-### Maximum Likelihood Optimization
+$$y = \beta_0 + \beta_1(t_{active} - t_{target}) + \beta_2(\ln(Q)_{active} - \ln(Q)_{target}) + \beta_3\sin(2\pi t_{active}) + \beta_4\cos(2\pi t_{active}) + \epsilon$$
 
-The custom negative log-likelihood function (optimized via `L-BFGS-B`) treats uncensored data as points on a normal Probability Density Function (PDF), and censored data as cumulative probabilities (CDF) bounded by the detection limit:
+In matrix form, this is:
+$$\mathbf{y} = \mathbf{X}\beta + \epsilon$$
 
-* **Uncensored Log-Likelihood:** $W \cdot \ln(\text{PDF}(z) / \sigma)$
-* **Censored Log-Likelihood:** $W \cdot \ln(\text{CDF}(z))$
+Where $\mathbf{y}$ is the vector of log-concentrations, $\mathbf{X}$ is the design matrix, $\beta$ is the vector of coefficients, and $\epsilon$ is the error term.
 
----
+An initial guess for the coefficients is generated via a simple weighted linear regression on the uncensored data only. This is used as a starting point for the MLE optimization.
+
+$$\hat{\beta} = (\mathbf{X}^T \mathbf{W} \mathbf{X})^{-1} \mathbf{X}^T \mathbf{W} \mathbf{y}$$
+
+Where $\mathbf{W}$ is the diagonal matrix of weights for each sample.
+
+### Maximum Likelihood
+
+The negative log-likelihood function (optimized via `L-BFGS-B`) treats uncensored data as points on a Gaussian Probability Density Function (PDF), and censored data as cumulative probabilities (CDF) bounded by the detection limit:
+
+| Sample | Log-likelihood |
+| --- | --- |
+| Uncensored | $\ln(\text{PDF}(z))$ |
+| Censored | $\ln(\text{CDF}(z))$ |
 
 ## 6. Back-Transformation (Bias Correction)
 
-Because WRTDS models the natural logarithm of concentration, exponentiating the result directly back to real units ($mg/L$) introduces a severe low bias.
-
-While early versions of the algorithm used Naihua Duan's non-parametric smearing estimator, interval-censored data prevents the exact calculation of residuals. Therefore, `wrtds_py` uses the mathematically rigorous, modern EGRET standard of evaluating the **parametric expected value** of the log-normal distribution:
+Because WRTDS models log-concentration, exponentiating the result directly back to real units ($mg/L$) introduces a low bias. To correct for this, we back-transform the log-predictions using the expected value of a log-normal distribution:
 
 $$\hat{C} = \exp\left(\hat{y} + \frac{\sigma^2}{2}\right)$$
 
----
 
-## WRTDS-Kalman (WRTDS-K)
+# WRTDS-Kalman (WRTDS-K)
 
-While classic WRTDS is excellent at capturing long-term trends and smooth seasonal averages, it lacks short-term memory. If a river experiences an acute pollution event on Tuesday, WRTDS-K helps model the likelihood that it is still somewhat polluted on Wednesday. It achieves this by applying an autoregressive filter to the residuals of the base WRTDS model.
+While classic WRTDS is excellent at capturing long-term trends and smooth seasonal averages, it lacks short-term memory. If a river experiences an acute pollution event on Tuesday, introducing a Kalman filter helps model the likelihood that the river is still somewhat polluted on Wednesday. This is achieved by applying an autoregressive filter `AR(1)` to the residuals of the base WRTDS model.
 
-### 1. The Core Concept
+### 1. The Core Idea
 
 WRTDS-K improves daily predictions by calculating the difference (residual) between the actual water quality observations and the base WRTDS predictions, and then interpolating those residuals across the unobserved days between samples.
 
-### 2. Handling Censorship (Monte Carlo Simulation)
+### 2. Handling Censored Data
 
 Because water quality data often contains left-censored values (measurements below the laboratory detection limit), we don't always have an exact observation to calculate a perfect residual. WRTDS-K solves this probabilistically:
 
 * **Uncensored Data:** The residual is exact: $e = y_{obs} - \hat{y}$.
 * **Censored Data:** WRTDS-K runs a Monte Carlo simulation (`niter` times, typically 100). In each iteration, it draws a random "true" value from a truncated normal distribution to compute a possible residual.
 
-### 3. The AR(1) Process (Short-Term Memory)
+### 3. The AR(1) Process
 
-For every single day in the continuous streamflow record, the filter looks at the nearest preceding and succeeding water quality sample residuals.
+Having a set of residuals for water quality data, for every single day in the continuous streamflow record, the filter looks at the nearest preceding and succeeding residuals.
 
-* It uses a continuous-time Autoregressive (AR(1)) process to interpolate the expected residual for that day.
-* The correlation decays exponentially over time, controlled by the parameter $\rho$ (typically set to **0.9**).
-* This means the "memory" or influence of a specific sampled residual decays by **10%** for each day that passes.
+The filter uses an autoregressive process `AR(1)` to interpolate the expected residual for each day. The correlation decays exponentially over time, controlled by the parameter $\rho$ (typically set to **0.9**). This means the "memory" or influence of a specific sampled residual decays by **10%** for each day that passes.
 
-### 4. Final Assembly
+As an example, for a previously calculated concentration value at time $t_{50}$ we find that the closest residuals are at $t_{40}$ and $t_{70}$. Therefore we can count the number of days between the target day and the nearest residuals: `days_l` = 10 and `days_r` = 20. Now, for these residuals we calculate their weights using the `AR(1)` decay function: `w_l` = $\rho^{\text{days\_l}}$ and `w_r` = $\rho^{\text{days\_r}}$. Finally, we calculate the expected residual for $t_{50}$ as a weighted average of the two nearest residuals:
 
-For each of the Monte Carlo iterations, the algorithm performs the following assembly:
+$$e_{t_{50}} = \frac{w_l e_{t_{40}} + w_r e_{t_{70}}}{w_l + w_r}$$
 
-1. **Recombination:** The interpolated daily residuals are added back to the daily base WRTDS predictions in log-space.
-2. **Variance Correction:** Because the AR(1) process explains some of the variance, the standard error is adjusted:
+And add it back to the base WRTDS prediction to get the final Kalman-adjusted prediction.
+
+$$\hat{y}_{adj} = \hat{y} + e_{t_{50}}$$
+
+Where $\hat{y}_{adj}$ is the adjusted prediction in log-space. The standard error is also adjusted to account for the uncertainty introduced by the AR(1) process. The standard error of the adjusted prediction is calculated as:
 
 $$\sigma_{adj} = \text{SE} \cdot \sqrt{\max(0, 1 - \rho^2)}$$
 
+Finally, the adjusted log-prediction is back-transformed to real units using the same bias correction as classic WRTDS:
 
-3. **Transformation:** The results are exponentiated back into real space to calculate concentration:
+$$\hat{C} = \exp\left(\hat{y}_{adj} + \frac{\sigma_{adj}^2}{2}\right)$$
 
-$$\text{Conc} = \exp\left(\hat{y}_{adj} + \frac{\sigma_{adj}^2}{2}\right)$$
-
-Finally, the estimated daily concentrations are averaged across all `niter` iterations to produce the final output column, **`ConcKalman`**.
-
-> **Note:** `wrtds_py` currently only computes this concentration column. Unlike `EGRET`, it does not (yet) compute a corresponding flux/load output.
+For the censored data, the estimated daily concentrations are averaged across all `niter` iterations to produce the final output. These new predictions are stored in the **`ConcKalman`** column.
