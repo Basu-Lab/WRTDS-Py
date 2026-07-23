@@ -19,36 +19,40 @@ The `wrtds_py` package is a Python implementation of the WRTDS algorithm as impl
 
 ## 2. Data
 
-For this initial implementation we use very similar data structures to those used in the original EGRET R package and the whole USGS data ecosystem. Instead of an `eList` object, we use two separate DataFrames: `df_daily` and `df_sample`.
+For this initial implementation we use very similar data structures to those used in the original EGRET R package and the whole USGS data ecosystem. Instead of an `eList` object, we use two separate DataFrames: `df_q` and `df_wq`, matching the parameter names used throughout the `wrtds_py` API (e.g. `WRTDS.fit(df_wq, df_q)`).
 
-### `df_daily` (Continuous Discharge Record)
+### `df_q` (Continuous Discharge Record)
 
 | Column | Description |
 | --- | --- |
 | **`Date`** | pandas `DatetimeIndex` representing every continuous day. |
 | **`Q`** | Raw daily mean streamflow (discharge) in any units (cfs, m³/s). |
-| **`LogQ`** | Natural logarithm of streamflow ($\ln(Q)$). |
-| **`DecYear`** | Decimal year representation of the date (e.g., 2010.5 for July 1). This is the `time` variable. |
+| **`LogQ`** | Natural logarithm of streamflow ($\ln(Q)$). Computed automatically from `Q` if not supplied. |
+| **`DecYear`** | Decimal year representation of the date (e.g., 2010.5 for July 1). This is the `time` variable. Computed automatically from the index if not supplied. |
 
-### `df_sample` (Sparse Water Quality Record)
+### `df_wq` (Sparse Water Quality Record)
 
 | Column | Description |
 | --- | --- |
-| **`ConcLow`** | Lower boundary of the recorded concentration. For uncensored data, this equals the recorded value. For censored data (e.g. reported as `< 0.05`), this is `0.0` or `NaN`. |
-| **`ConcHigh`** | Upper boundary of the recorded concentration. For uncensored data, equals `ConcLow`. For censored data, equals the detection limit (e.g., `0.05`). |
+| **`Conc`** | The recorded concentration. For censored data (e.g. reported as `< 0.05`), this is the detection limit itself (e.g. `0.05`), not the true (unknown) value. |
 | **`Uncen`** | Binary flag (`1` = true detection, `0` = censored/below detection limit). |
-| **`DecYear`** | Decimal year of the sample date. |
+| **`LogQ`** | Natural logarithm of streamflow at the sample date. If not supplied directly, it is mapped from `df_q` by matching on date — every sample date must therefore exist in `df_q`'s index. |
+| **`DecYear`** | Decimal year of the sample date. Computed automatically from the index if not supplied. |
+
+Note: unlike `EGRET`, which represents censored samples with a `ConcLow`/`ConcHigh` interval, `wrtds_py` only supports a single left-censoring bound (the detection limit) via `Conc` + `Uncen`. See §5 for how this is handled in the regression.
 
 ---
 
-## 3. The Estimation Grid (`surfaces_`)
+## 3. The Estimation Grid (`surface_`)
 
 The whole point of WRTDS is to pre-compute a 3D grid of discharge, time and concentration. Predictions are generated later via interpolation.
 
-* **Shape:** `(14, N, 3)`
-* **Dimension 1 (Discharge):** 14 equally spaced $\ln(Q)$ nodes spanning the minimum to maximum historical daily flows.
-* **Dimension 2 (Time/Season):** $N$ time nodes, strictly stepped at exactly 16 increments per calendar year to perfectly capture seasonal cycles without overfitting.
+* **`surface_` shape:** `(14, N, 3)`
+* **Dimension 1 (Discharge):** 14 equally spaced $\ln(Q)$ nodes spanning the minimum to maximum historical daily flows, stored in `grid_logq_`.
+* **Dimension 2 (Time/Season):** $N$ time nodes, strictly stepped at exactly 16 increments per calendar year to perfectly capture seasonal cycles without overfitting, stored in `grid_time_`.
 * **Dimension 3 (Outputs):** `[yHat, SE, ConcHat]` for every intersection in the grid.
+
+The effective (possibly expanded — see below) window used to fit each node is stored separately in `effective_windows_`, with the same `(14, N, 3)` shape but holding `[window_time, window_discharge, window_season]` instead.
 
 ---
 
@@ -71,7 +75,7 @@ If a grid node lacks sufficient data to run a robust regression (e.g., during ex
 
 ## 5. The Regression Engine (Tobit MLE)
 
-Because water quality data includes censored "less-than" values, Ordinary Least Squares (OLS) produces mathematically biased results. `wrtds_py` implements **Adjusted Maximum Likelihood Estimation (AMLE)** via an interval-censored Tobit survival regression.
+Because water quality data includes censored "less-than" values, Ordinary Least Squares (OLS) produces mathematically biased results. `wrtds_py` implements a **left-censored Tobit regression**, solved via Maximum Likelihood Estimation. This is a single-bound formulation (the detection limit) rather than the interval-censored (`ConcLow`/`ConcHigh`) formulation `EGRET` supports — see §2.
 
 ### Centered Design Matrix
 
@@ -135,6 +139,6 @@ $$\sigma_{adj} = \text{SE} \cdot \sqrt{\max(0, 1 - \rho^2)}$$
 
 $$\text{Conc} = \exp\left(\hat{y}_{adj} + \frac{\sigma_{adj}^2}{2}\right)$$
 
+Finally, the estimated daily concentrations are averaged across all `niter` iterations to produce the final output column, **`ConcKalman`**.
 
-
-Finally, the estimated daily concentrations are averaged across all 100 iterations to produce the final **Generated Concentration (`GenConc`)** and **Generated Flux (`GenFlux`)**.
+> **Note:** `wrtds_py` currently only computes this concentration column. Unlike `EGRET`, it does not (yet) compute a corresponding flux/load output.
