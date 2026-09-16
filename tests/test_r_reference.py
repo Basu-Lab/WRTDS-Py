@@ -1,12 +1,13 @@
-import pytest
 import numpy as np
 import pandas as pd
+import pytest
 import rpy2.robjects as robjects
-from rpy2.robjects.packages import importr
 from rpy2.robjects import pandas2ri
+from rpy2.robjects.packages import importr
 
 from wrtds_py import WRTDS
 from wrtds_py.models.kalman import WRTDSK
+
 
 @pytest.fixture(scope="session")
 def choptank_ground_truth():
@@ -55,6 +56,24 @@ def fitted_base_model(choptank_ground_truth):
     
     return model
 
+def calculate_obs_metrics(y_obs, y_sim):
+    mask = ~np.isnan(y_obs) & ~np.isnan(y_sim)
+    y_obs, y_sim = y_obs[mask], y_sim[mask]
+
+    res = y_obs - y_sim
+    rmse = np.sqrt(np.mean(res**2))
+    ss_tot = np.sum((y_obs - np.mean(y_obs))**2)
+    ss_res = np.sum(res**2)
+    r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else np.nan
+    return rmse, r2
+
+def calculate_sim_metrics(y_r, y_py):
+    mask = ~np.isnan(y_r) & ~np.isnan(y_py)
+    y_r, y_py = y_r[mask], y_py[mask]
+    corr = np.corrcoef(y_r, y_py)[0, 1]
+    mae = np.mean(np.abs(y_r - y_py))
+    return corr, mae
+
 def test_classic_wrtds_rmse(choptank_ground_truth, fitted_base_model):
     """
     Tests that the Python classic WRTDS implementation achieves an RMSE 
@@ -65,15 +84,24 @@ def test_classic_wrtds_rmse(choptank_ground_truth, fitted_base_model):
     # Predict using the pre-fitted model
     y_hat_wq = fitted_base_model.predict(df_wq)
 
-    # R RMSE
-    res_r = np.abs(df_wq['ConcHat'] - df_wq['ConcAve'])
-    rmse_r = np.sqrt(np.mean(res_r**2))
+    # Extract arrays
+    obs = df_wq['ConcAve'].values
+    sim_r = df_wq['ConcHat'].values
+    sim_py = y_hat_wq['ConcHat'].values
+    num_nans = np.sum(np.isnan(sim_py))
+    print(f"\nNumber of NaNs in Python predictions: {num_nans} out of {len(sim_py)}")
 
-    # Python RMSE
-    res_py = np.abs(y_hat_wq['ConcHat'] - df_wq['ConcAve'])
-    rmse_py = np.sqrt(np.mean(res_py**2))
+    # Calculate metrics
+    rmse_r, r2_r = calculate_obs_metrics(obs, sim_r)
+    rmse_py, r2_py = calculate_obs_metrics(obs, sim_py)
 
-    assert rmse_py <= rmse_r + 1e-6, f"Python RMSE ({rmse_py:.6f}) is worse than R RMSE ({rmse_r:.6f})"
+    print("\n--- Classic WRTDS Metrics ---")
+    print(f"[Obs vs Sim] R      -> RMSE: {rmse_r:.3f} | R^2: {r2_r:.3f}")
+    print(f"[Obs vs Sim] Python -> RMSE: {rmse_py:.3f} | R^2: {r2_py:.3f}")
+    print("-----------------------------")
+
+    assert rmse_py <= rmse_r + 1e-4, f"Python RMSE ({rmse_py:.6f}) is worse than R ({rmse_r:.6f})"
+    assert r2_py >= r2_r - 1e-4, f"Python R^2 ({r2_py:.6f}) is worse than R ({r2_r:.6f})"
 
 def test_kalman_filter_matches_r(choptank_ground_truth, fitted_base_model):
     """
@@ -86,20 +114,29 @@ def test_kalman_filter_matches_r(choptank_ground_truth, fitted_base_model):
     k_model = WRTDSK(fitted_base_model, rho=0.9, niter=100, seed=42)
     df_q_kalman = k_model.filter(df_wq, df_q, verbose=False)
     
-    # Compare GenConc
-    r_gen_conc = df_q['GenConc'].values
-    py_gen_conc = df_q_kalman['GenConc'].values
+    # Extract arrays
+    dates_obs = df_wq.index
+    obs = df_wq['ConcAve'].values
+    sim_r = df_q['GenConc'][dates_obs].values
+    sim_py = df_q_kalman['ConcKalman'][dates_obs].values
     
-    correlation = np.corrcoef(r_gen_conc, py_gen_conc)[0, 1]
-    mae = np.mean(np.abs(r_gen_conc - py_gen_conc))
-    mean_val = np.mean(r_gen_conc)
+    gen_r = df_q['GenConc'].values
+    gen_py = df_q_kalman['ConcKalman'].values
     
-    print(f"\n--- Kalman Debug Info ---")
-    print(f"Pearson Correlation: {correlation:.6f}")
-    print(f"Mean Absolute Error: {mae:.6f} (Mean Conc: {mean_val:.6f})")
-    print(f"-------------------------")
+    # Calculate metrics
+    rmse_r, r2_r = calculate_obs_metrics(obs, sim_r)
+    rmse_py, r2_py = calculate_obs_metrics(obs, sim_py)
+    corr, mae = calculate_sim_metrics(gen_r, gen_py)
+
+    mean_val = np.mean(gen_r)
     
-    assert correlation > 0.90, f"Kalman correlation too low: {correlation:.4f}"
+    print("\n--- Kalman WRTDS Metrics ---")
+    print(f"[Obs vs Sim] R      -> RMSE: {rmse_r:.3f} | R^2: {r2_r:.3f}")
+    print(f"[Obs vs Sim] Python -> RMSE: {rmse_py:.3f} | R^2: {r2_py:.3f}")
+    print(f"[R vs Python]       -> Corr: {corr:.3f} | MAE: {mae:.3f}")
+    print("-----------------------------")
+    
+    assert corr > 0.90, f"Kalman correlation too low: {corr:.4f}"
     
     relative_error = mae / mean_val
     assert relative_error < 0.10, f"Kalman relative error too high: {relative_error:.2%}"
