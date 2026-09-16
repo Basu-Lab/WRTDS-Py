@@ -10,7 +10,8 @@ class BaseWRTDS:
         window_season: float = 0.5,
         min_num_obs: int = 50, 
         min_num_uncen: int = 30, 
-        adjust_edges: bool = True
+        adjust_edges: bool = True,
+        allow_expansion: bool = True,
     ) -> None:
         
         self.window_time = window_time
@@ -19,6 +20,7 @@ class BaseWRTDS:
         self.min_num_obs = min_num_obs
         self.min_num_uncen = min_num_uncen
         self.adjust_edges = adjust_edges
+        self.allow_expansion = allow_expansion
         
         self.surface_: np.ndarray | None = None
         self.grid_logq_: np.ndarray | None = None

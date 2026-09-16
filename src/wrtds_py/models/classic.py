@@ -76,7 +76,8 @@ class WRTDS(BaseWRTDS):
                     target_time=target_time,
                     min_obs=self.min_num_obs,
                     min_uncen=self.min_num_uncen,
-                    adjust_edges=self.adjust_edges
+                    adjust_edges=self.adjust_edges,
+                    allow_expansion=self.allow_expansion
                 )
                 
                 out = estimate_surface_node(node_config, sample_data, initial_windows)

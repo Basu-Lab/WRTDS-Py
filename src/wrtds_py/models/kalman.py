@@ -47,10 +47,17 @@ class WRTDSK:
         num_censored = np.sum(censored_mask)
 
         if num_censored > 0:
+            # Ensure standard errors are strickly positive and finite
+            se_censored = se[censored_mask]
+            se_safe = np.where(np.isfinite(se_censored) & (se_censored > 1e-4), se_censored, 1e-4)
+
             # Truncation bounds for the truncated normal distribution for censored data
             a_vec = np.full(num_censored, -np.inf) # Smallest possible value for left-censor data
             b_vec = residuals[censored_mask] # Difference between 'detection limit' and predicted value
-            b_vec = b_vec / se[censored_mask] # truncnorm expects z-scores, so we use the standard error to scale
+            b_vec = b_vec / se_safe # truncnorm expects z-scores, so we use the standard error to scale
+
+            # Guard against NaN/inf values in the residuals themselves
+            b_vec = np.nan_to_num(b_vec, nan=0.0, posinf=10.0, neginf=-10.0)
 
         # Sampling residuals
         with tqdm(total=self.niter, disable=not verbose, desc="Running WRTDS-K", ascii=True) as pbar:
@@ -58,7 +65,7 @@ class WRTDSK:
                 residuals_iter = residuals.copy() # base residuals
                 if num_censored > 0: # censored data
                     samples = truncnorm.rvs(a_vec, b_vec, size=num_censored) # samples for censored data
-                    residuals_iter[censored_mask] = samples * se[censored_mask] # re-scale back to log-space
+                    residuals_iter[censored_mask] = samples * se_safe # re-scale back to log-space
                 
                 # Generate residuals for 'q' data using the AR(1) model
                 daily_res_interp = np.zeros(n_q)
