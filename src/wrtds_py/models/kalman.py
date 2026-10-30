@@ -82,25 +82,35 @@ class WRTDSK:
                     # Count the days between the 'q' time point and the closest 'wq' observation
                     days_l = (time_q[k] - time_wq[idx_l]) * 365.25
                     days_r = (time_wq[idx_r] - time_q[k]) * 365.25
-                    
-                    if days_l < 0:
-                        days_l = np.inf
-                    if days_r < 0:
-                        days_r = np.inf
-                    
-                    # AR(1) weighting based on the time difference
-                    # More days away means more decay in the influence of the residual
-                    w_l = self.rho ** days_l if days_l != np.inf else 0.0
-                    w_r = self.rho ** days_r if days_r != np.inf else 0.0
-                    
-                    total_w = w_l + w_r
-                    if total_w > 0:
-                        daily_res_interp[k] = (w_l * residuals_iter[idx_l] + w_r * residuals_iter[idx_r]) / total_w
+
+                    if days_l == 0:
+                        daily_res_interp[k] = residuals_iter[idx_l]
+                    elif days_r == 0:
+                        daily_res_interp[k] = residuals_iter[idx_r]
+                    else:
+                        if days_l < 0:
+                            days_l = np.inf
+                        if days_r < 0:
+                            days_r = np.inf
+                                            
+                        # AR(1) weighting based on the time difference
+                        # More days away means more decay in the influence of the residual
+                        w_l = self.rho ** days_l if days_l != np.inf else 0.0
+                        w_r = self.rho ** days_r if days_r != np.inf else 0.0
+                        
+                        total_w = w_l + w_r
+                        if total_w > 0:
+                            daily_res_interp[k] = (w_l * residuals_iter[idx_l] + w_r * residuals_iter[idx_r]) / total_w
                 
                 # Add the interpolated residuals to the base models predictions
                 y_hat_q = df_q_pred['yHat'].values + daily_res_interp
                 # Adjust the standard error to account for the AR(1) correlation
                 sigma_adj = df_q_pred['SE'].values * np.sqrt(max(0, 1 - self.rho**2))
+
+                # Zero out the variance adjustment on days with uncensored samples
+                exact_uncensored_mask = time_wq[uncen == 1]
+                is_exact_uncensored = np.isin(time_q, exact_uncensored_mask)
+                sigma_adj[is_exact_uncensored] = 0.0
                 
                 # Transform back to concentration space and accumulate
                 conc_iter = np.exp(y_hat_q + (sigma_adj**2) / 2.0)
