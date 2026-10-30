@@ -105,9 +105,11 @@ class WRTDS(BaseWRTDS):
         if not self._is_fitted:
             raise RuntimeError("The model is not fitted yet. Call .fit() first.")
         
-        # Clean df as if it were 'df_q'
-        _, df_clean = self._prepare_data(df_wq=None, df_q=df)
-        
+        # Clean df as if it were 'df_q'. Cleaning sorts the rows by date, so each row is
+        # tagged with its original position to write the predictions back in place
+        _, df_clean = self._prepare_data(df_wq=None, df_q=df.assign(_row=np.arange(len(df))))
+        rows = df_clean['_row'].values
+
         # Clip the target values to the grid range to prevent extrapolation
         target_time = np.clip(df_clean['DecYear'].values, self.grid_time_.min(), self.grid_time_.max())
         target_logq = np.clip(df_clean['LogQ'].values, self.grid_logq_.min(), self.grid_logq_.max())
@@ -119,9 +121,10 @@ class WRTDS(BaseWRTDS):
         interp_conc = RegularGridInterpolator((self.grid_logq_, self.grid_time_), self.surface_[:, :, 2], method='linear')
         
         df_out = df.copy()
-        df_out['yHat'] = interp_yhat(points)
-        df_out['SE'] = interp_se(points)
-        df_out['ConcHat'] = interp_conc(points)
+        for col, interp in (('yHat', interp_yhat), ('SE', interp_se), ('ConcHat', interp_conc)):
+            values = np.empty(len(df))
+            values[rows] = interp(points)
+            df_out[col] = values
             
         return df_out
     

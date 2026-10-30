@@ -100,3 +100,16 @@ def test_wrtdsk_filter_smoke(fitted_base_model, synthetic_data):
     assert not result["ConcKalman"].isna().any()
     assert (result["ConcKalman"] > 0).all()
     assert len(result) == len(df_q)
+
+
+def test_wrtds_predict_preserves_row_order(fitted_base_model, synthetic_data):
+    _, df_q = synthetic_data
+
+    model = fitted_base_model
+
+    shuffled = df_q.sample(frac=1, random_state=0)
+    preds = model.predict(shuffled)
+    expected = model.predict(df_q).loc[shuffled.index]
+
+    assert preds.index.equals(shuffled.index)
+    np.testing.assert_allclose(preds[["yHat", "SE", "ConcHat"]], expected[["yHat", "SE", "ConcHat"]])
