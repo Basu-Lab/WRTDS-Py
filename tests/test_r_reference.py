@@ -74,39 +74,75 @@ def calculate_sim_metrics(y_r, y_py):
     mae = np.mean(np.abs(y_r - y_py))
     return corr, mae
 
+def calculate_diagnostics(c_obs, q_obs, c_base, full_c_kalman=None):
+    """
+    Helper to calculate D_fluxbias and D_ratio directly from arrays.
+    Dates must be aligned before passing.
+    """
+    # 1. D_fluxbias: requires strictly aligned base estimates and observations
+    mask = ~np.isnan(c_obs) & ~np.isnan(q_obs) & ~np.isnan(c_base)
+    c_obs_m, q_obs_m, c_base_m = c_obs[mask], q_obs[mask], c_base[mask]
+
+    L_sim = np.sum(c_base_m * q_obs_m)
+    L_obs = np.sum(c_obs_m * q_obs_m)
+    
+    d_fluxbias = ((L_sim - L_obs) / L_sim) * 100.0 if L_sim != 0 else np.nan
+
+    # 2. D_ratio: Ratio of Standard Deviations
+    # If Kalman is not provided (Classic test), we use the base estimates for ratio 
+    if full_c_kalman is None:
+        full_c_kalman = c_base 
+
+    std_obs = np.std(c_obs[~np.isnan(c_obs)], ddof=1)
+    std_sim = np.std(full_c_kalman[~np.isnan(full_c_kalman)], ddof=1)
+    
+    d_ratio = (std_obs / std_sim) if std_sim != 0 else np.nan
+
+    return d_fluxbias, d_ratio
+
 def test_classic_wrtds_rmse(choptank_ground_truth, fitted_base_model):
     """
     Tests that the Python classic WRTDS implementation achieves an RMSE 
-    less than or equal to the original R implementation.
+    less than or equal to the original R implementation, and verifies diagnostic metrics.
     """
-    df_wq, _ = choptank_ground_truth
+    df_wq, df_q = choptank_ground_truth
     
     # Predict using the pre-fitted model
     y_hat_wq = fitted_base_model.predict(df_wq)
 
     # Extract arrays
     obs = df_wq['ConcAve'].values
+    q_obs = df_wq['Q'].values
     sim_r = df_wq['ConcHat'].values
     sim_py = y_hat_wq['ConcHat'].values
+    
     num_nans = np.sum(np.isnan(sim_py))
     print(f"\nNumber of NaNs in Python predictions: {num_nans} out of {len(sim_py)}")
 
     # Calculate metrics
     rmse_r, r2_r = calculate_obs_metrics(obs, sim_r)
     rmse_py, r2_py = calculate_obs_metrics(obs, sim_py)
+    
+    # Calculate Diagnostics
+    df_q_base_py = fitted_base_model.predict(df_q)
+    flux_r, rat_r = calculate_diagnostics(obs, q_obs, c_base=sim_r, full_c_kalman=df_q['ConcDay'].values)
+    flux_py, rat_py = calculate_diagnostics(obs, q_obs, c_base=sim_py, full_c_kalman=df_q_base_py['ConcHat'].values)
 
     print("\n--- Classic WRTDS Metrics ---")
     print(f"[Obs vs Sim] R      -> RMSE: {rmse_r:.3f} | R^2: {r2_r:.3f}")
     print(f"[Obs vs Sim] Python -> RMSE: {rmse_py:.3f} | R^2: {r2_py:.3f}")
+    print(f"[Diagnostic] R      -> D_fluxbias: {flux_r:.3f}% | D_ratio: {rat_r:.3f}")
+    print(f"[Diagnostic] Python -> D_fluxbias: {flux_py:.3f}% | D_ratio: {rat_py:.3f}")
     print("-----------------------------")
 
     assert rmse_py <= rmse_r + 1e-4, f"Python RMSE ({rmse_py:.6f}) is worse than R ({rmse_r:.6f})"
     assert r2_py >= r2_r - 1e-4, f"Python R^2 ({r2_py:.6f}) is worse than R ({r2_r:.6f})"
+    assert abs(flux_py - flux_r) < 1.0, f"Python D_fluxbias diverges from R (Py: {flux_py:.2f}%, R: {flux_r:.2f}%)"
 
 def test_kalman_filter_matches_r(choptank_ground_truth, fitted_base_model):
     """
     Tests that the Python WRTDS-K implementation produces Generated Concentrations
-    (GenConc) that highly correlate with the R implementation.
+    (GenConc) that highly correlate with the R implementation, and verifies diagnostics.
     """
     df_wq, df_q = choptank_ground_truth
     
@@ -117,16 +153,24 @@ def test_kalman_filter_matches_r(choptank_ground_truth, fitted_base_model):
     # Extract arrays
     dates_obs = df_wq.index
     obs = df_wq['ConcAve'].values
-    sim_r = df_q['GenConc'][dates_obs].values
-    sim_py = df_q_kalman['ConcKalman'][dates_obs].values
+    q_obs = df_wq['Q'].values
+    sim_r_base = df_wq['ConcHat'].values
+    sim_r_kalman = df_q['GenConc'][dates_obs].values
+    
+    sim_py_base = fitted_base_model.predict(df_wq)['ConcHat'].values
+    sim_py_kalman = df_q_kalman['ConcKalman'][dates_obs].values
     
     gen_r = df_q['GenConc'].values
     gen_py = df_q_kalman['ConcKalman'].values
     
     # Calculate metrics
-    rmse_r, r2_r = calculate_obs_metrics(obs, sim_r)
-    rmse_py, r2_py = calculate_obs_metrics(obs, sim_py)
+    rmse_r, r2_r = calculate_obs_metrics(obs, sim_r_kalman)
+    rmse_py, r2_py = calculate_obs_metrics(obs, sim_py_kalman)
     corr, mae = calculate_sim_metrics(gen_r, gen_py)
+    
+    # Calculate Diagnostics (Using Kalman full series for D_ratio)
+    flux_r, rat_r = calculate_diagnostics(obs, q_obs, c_base=sim_r_base, full_c_kalman=gen_r)
+    flux_py, rat_py = calculate_diagnostics(obs, q_obs, c_base=sim_py_kalman, full_c_kalman=gen_py)
 
     mean_val = np.mean(gen_r)
     
@@ -134,9 +178,21 @@ def test_kalman_filter_matches_r(choptank_ground_truth, fitted_base_model):
     print(f"[Obs vs Sim] R      -> RMSE: {rmse_r:.3f} | R^2: {r2_r:.3f}")
     print(f"[Obs vs Sim] Python -> RMSE: {rmse_py:.3f} | R^2: {r2_py:.3f}")
     print(f"[R vs Python]       -> Corr: {corr:.3f} | MAE: {mae:.3f}")
+    print(f"[Diagnostic] R      -> D_fluxbias: {flux_r:.3f}% | D_ratio: {rat_r:.3f}")
+    print(f"[Diagnostic] Python -> D_fluxbias: {flux_py:.3f}% | D_ratio: {rat_py:.3f}")
     print("-----------------------------")
     
     assert corr > 0.90, f"Kalman correlation too low: {corr:.4f}"
     
     relative_error = mae / mean_val
     assert relative_error < 0.10, f"Kalman relative error too high: {relative_error:.2%}"
+    
+    # Asserting that Python D_ratio behaves similarly to the R reference
+    # or outperforms it by being closer to the ideal ratio of 1.0
+    dist_py = abs(rat_py - 1.0)
+    dist_r = abs(rat_r - 1.0)
+    
+    assert dist_py <= dist_r + 0.05, (
+        f"Python D_ratio is worse (further from 1.0) than R "
+        f"(Py: {rat_py:.3f}, R: {rat_r:.3f})"
+    )
