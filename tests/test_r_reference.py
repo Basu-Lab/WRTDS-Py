@@ -121,6 +121,8 @@ def test_classic_wrtds_matches_r(egret: EgretReference, py_model: WRTDS):
     print(f"R      -> RMSE: {rmse_r:.3f} | R^2: {r2_r:.3f} | D_fluxbias: {flux_r:.3f}% | D_ratio: {ratio_r:.3f}")
     print(f"Python -> RMSE: {rmse_py:.3f} | R^2: {r2_py:.3f} | D_fluxbias: {flux_py:.3f}% | D_ratio: {ratio_py:.3f}")
 
+    assert py_sample.notna().all(), f"{py_sample.isna().sum()} Python predictions on sample days are NaN"
+    assert py_daily.notna().all(), f"{py_daily.isna().sum()} Python daily predictions are NaN"
     assert rmse_py <= rmse_r + 1e-4, f"Python RMSE ({rmse_py:.6f}) is worse than R ({rmse_r:.6f})"
     assert r2_py >= r2_r - 1e-4, f"Python R^2 ({r2_py:.6f}) is worse than R ({r2_r:.6f})"
     assert abs(flux_py - flux_r) < 1.0, f"Python D_fluxbias diverges from R (Py: {flux_py:.2f}%, R: {flux_r:.2f}%)"
@@ -139,6 +141,7 @@ def test_kalman_filter_matches_r(egret: EgretReference, py_kalman: pd.Series):
     print(f"R vs Python -> Corr: {corr:.3f} | Relative MAE: {relative_mae:.2%}")
     print(f"D_ratio     -> R: {ratio_r:.3f} | Python: {ratio_py:.3f}")
 
+    assert py_kalman.notna().all(), f"{py_kalman.isna().sum()} Python WRTDS-K estimates are NaN"
     assert corr > 0.90, f"Kalman correlation too low: {corr:.4f}"
     assert relative_mae < 0.10, f"Kalman relative error too high: {relative_mae:.2%}"
     # Python's D_ratio may be closer to the ideal of 1.0 than R's, but not much further from it

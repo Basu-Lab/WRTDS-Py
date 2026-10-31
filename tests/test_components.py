@@ -4,7 +4,9 @@ import pandas as pd
 
 from wrtds_py import WRTDS
 from wrtds_py.weighting import tricube_weight, cyclic_distance
-from wrtds_py.estimation import estimate_surface_node, NodeConfig, WindowParams
+from scipy.optimize import check_grad
+
+from wrtds_py.estimation import estimate_surface_node, NodeConfig, WindowParams, _tobit_neg_log_likelihood
 
 @pytest.fixture(scope="session")
 def station_data():
@@ -130,3 +132,27 @@ def test_single_node_estimation(station_data):
     assert result.sigma > 0, "Sigma should be strictly positive"
     assert result.conc_hat > 0, "Generated concentration should be strictly positive"
     assert isinstance(result.final_windows, WindowParams), "Did not return a WindowParams object"
+
+@pytest.mark.parametrize("censored_fraction", [0.0, 0.3])
+def test_tobit_gradient(censored_fraction):
+    """
+    Verifies the analytic gradient of the Tobit likelihood against finite differences,
+    including censored samples far into the lower tail.
+    """
+    rng = np.random.default_rng(0)
+    n = 60
+
+    X = np.column_stack((np.ones(n), rng.normal(size=(n, 4))))
+    model_data = {
+        "X": X,
+        "y": X @ rng.normal(size=5) + rng.normal(scale=0.5, size=n),
+        "uncen": (rng.random(n) >= censored_fraction).astype(int),
+        "weights": rng.uniform(0.1, 2.0, size=n),
+    }
+
+    for _ in range(5):
+        x = np.append(rng.normal(size=5), rng.uniform(0.1, 1.0))
+        func = lambda x: _tobit_neg_log_likelihood(x, model_data)[0]
+        grad = lambda x: _tobit_neg_log_likelihood(x, model_data)[1]
+        error = check_grad(func, grad, x) / max(1.0, np.linalg.norm(grad(x)))
+        assert error < 1e-5, f"Analytic gradient deviates from finite differences (relative error {error:.2e})"

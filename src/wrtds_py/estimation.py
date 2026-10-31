@@ -3,7 +3,7 @@ from typing import NamedTuple
 
 import numpy as np
 from scipy.optimize import minimize
-from scipy.special import erf
+from scipy.special import log_ndtr
 
 from wrtds_py.weighting import cyclic_distance, tricube_weight
 
@@ -45,28 +45,38 @@ class NodeResult(NamedTuple):
     final_windows: WindowParams
 
 
-def _tobit_neg_log_likelihood(x: np.ndarray, model_data: dict) -> float:
+def _tobit_neg_log_likelihood(x: np.ndarray, model_data: dict) -> tuple[float, np.ndarray]:
+    """Weighted negative log-likelihood of the left-censored regression and its gradient."""
     betas = x[:-1]
-    sigma = x[-1]
+    sigma = x[-1]  # kept positive by the optimizer bounds
 
-    if sigma <= 1e-5:
-        return 1e10
+    weights = model_data["weights"]
+    is_uncen = model_data["uncen"] == 1
 
     mu = model_data["X"] @ betas
 
     z = (model_data["y"] - mu) / sigma
 
     # Gaussian log-PDF for uncensored data
-    log_pdf = -0.5 * (z**2) - _LOG_SQRT_2_PI - np.log(sigma)
-    loglik_uncen = model_data["weights"] * model_data["uncen"] * log_pdf
-
-    # Gaussian CDF for left-censored data
+    log_pdf = -0.5 * (z**2) - _LOG_SQRT_2_PI
+    # Gaussian log-CDF for left-censored data
     # Because this is a detection limit, the CDF gives the total probability of the distribution up to the detection
-    # limit
-    cdf = np.clip(0.5 * (1.0 + erf(z / np.sqrt(2.0))), 1e-10, 1.0)
-    loglik_cen = model_data["weights"] * (1 - model_data["uncen"]) * np.log(cdf)
+    # limit. log_ndtr stays accurate far into the lower tail, where the CDF itself underflows
+    log_cdf = log_ndtr(z)
 
-    return -np.sum(loglik_uncen + loglik_cen)
+    loglik = np.where(is_uncen, log_pdf - np.log(sigma), log_cdf)
+
+    # Derivatives of each log-likelihood term with respect to z and sigma, using dz/dbeta = -X / sigma
+    # and dz/dsigma = -z / sigma. For censored data, d(log CDF)/dz is the inverse Mills ratio PDF / CDF
+    mills = np.exp(log_pdf - log_cdf)
+    dloglik_dz = np.where(is_uncen, -z, mills)
+    dloglik_dsigma = np.where(is_uncen, (z**2 - 1.0) / sigma, -mills * z / sigma)
+
+    # Gradient of the negative log-likelihood
+    grad_betas = (weights * dloglik_dz / sigma) @ model_data["X"]
+    grad_sigma = -np.sum(weights * dloglik_dsigma)
+
+    return -np.sum(weights * loglik), np.append(grad_betas, grad_sigma)
 
 
 def estimate_surface_node(
@@ -173,6 +183,7 @@ def estimate_surface_node(
         _tobit_neg_log_likelihood,
         x0=np.append(init_betas, init_sigma),
         args=(model_data,),
+        jac=True,
         method="L-BFGS-B",
         bounds=[(None, None)] * 5 + [(1e-5, None)],
     )
