@@ -1,10 +1,10 @@
 [project]
 name = "wrtds-py"
 version = "0.1.0"
-description = "Add your description here"
+description = "A simple package implementing the WRTDS model for water quality data"
 readme = "README.md"
 authors = [
-    { name = "manuel-alvarez-chaves", email = "malvarez062@gmail.com" }
+    { name = "Manuel Alvarez Chaves", email = "malvarez062@gmail.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [
