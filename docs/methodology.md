@@ -91,20 +91,43 @@ $$\mathbf{y} = \mathbf{X}\beta + \epsilon$$
 
 Where $\mathbf{y}$ is the vector of log-concentrations, $\mathbf{X}$ is the design matrix, $\beta$ is the vector of coefficients, and $\epsilon$ is the error term.
 
-An initial guess for the coefficients is generated via a simple weighted linear regression on the uncensored data only. This is used as a starting point for the MLE optimization.
+An initial guess for the coefficients is generated via a weighted least squares (WLS) regression on all active samples, with censored samples taken at their detection limit. This is used as a starting point for the MLE optimization.
 
 $$\hat{\beta} = (\mathbf{X}^T \mathbf{W} \mathbf{X})^{-1} \mathbf{X}^T \mathbf{W} \mathbf{y}$$
 
-Where $\mathbf{W}$ is the diagonal matrix of weights for each sample.
+Where $\mathbf{W}$ is the diagonal matrix of weights for each sample, rescaled so that the weights average to 1. The initial $\sigma$ is the weighted root mean square of the WLS residuals, floored at 0.05.
 
 ### Maximum Likelihood
 
-The negative log-likelihood function (optimized via `L-BFGS-B`) treats uncensored data as points on a Gaussian Probability Density Function (PDF), and censored data as cumulative probabilities (CDF) bounded by the detection limit:
+The weighted negative log-likelihood is minimized over $(\beta, \sigma)$ with `L-BFGS-B`, with $\sigma$ bounded below by $10^{-5}$. With the standardized residual
 
-| Sample | Log-likelihood |
+$$z_i = \frac{y_i - \mathbf{x}_i^T\beta}{\sigma}$$
+
+uncensored samples contribute the log of the Gaussian Probability Density Function (PDF), and censored samples the log of the Cumulative Distribution Function (CDF) up to the detection limit, i.e. the probability that the true value lies below it:
+
+| Sample | Log-likelihood $\ell_i$ |
 | --- | --- |
-| Uncensored | $\ln(\text{PDF}(z))$ |
-| Censored | $\ln(\text{CDF}(z))$ |
+| Uncensored | $\ln\phi(z_i) - \ln\sigma = -\frac{z_i^2}{2} - \ln\sqrt{2\pi} - \ln\sigma$ |
+| Censored | $\ln\Phi(z_i)$ |
+
+$$-\ln L(\beta, \sigma) = -\sum_i w_i \, \ell_i$$
+
+$\ln\Phi$ is evaluated with `scipy.special.log_ndtr`, which stays accurate far into the lower tail, where $\Phi$ itself underflows to zero and a naive `log(norm.cdf(z))` would return $-\infty$.
+
+#### Analytic Gradient
+
+The objective returns its analytic gradient together with its value (`jac=True`), so the optimizer never relies on finite differences. Using $\partial z_i / \partial\beta = -\mathbf{x}_i / \sigma$ and $\partial z_i / \partial\sigma = -z_i / \sigma$:
+
+| Sample | $\partial\ell_i / \partial z_i$ | $\partial\ell_i / \partial\sigma$ |
+| --- | --- | --- |
+| Uncensored | $-z_i$ | $\dfrac{z_i^2 - 1}{\sigma}$ |
+| Censored | $\lambda(z_i)$ | $-\dfrac{\lambda(z_i)\, z_i}{\sigma}$ |
+
+Where $\lambda(z) = \phi(z) / \Phi(z)$ is the inverse Mills ratio. To keep it stable in the lower tail, it is computed in log space as $\lambda(z) = \exp\left(\ln\phi(z) - \ln\Phi(z)\right)$ rather than as a ratio of two numbers that both underflow. The gradient of the negative log-likelihood is then:
+
+$$\frac{\partial(-\ln L)}{\partial\beta} = \sum_i \frac{w_i}{\sigma} \frac{\partial\ell_i}{\partial z_i} \mathbf{x}_i \qquad \frac{\partial(-\ln L)}{\partial\sigma} = -\sum_i w_i \frac{\partial\ell_i}{\partial\sigma}$$
+
+The analytic gradient is not only faster but required for convergence. When a node has no censored samples, the WLS starting point is already the exact optimum. Finite-difference gradients at that point are dominated by rounding noise, the line search cannot make progress, and `L-BFGS-B` ends with `ABNORMAL` status. Since a failed optimization returns NaN for the node, this previously left ~9% of the nodes in `surface_` as NaN. With the exact gradient, the optimizer recognizes the starting point as converged. `test_tobit_gradient` checks the analytic gradient against finite differences.
 
 ## 6. Back-Transformation (Bias Correction)
 
