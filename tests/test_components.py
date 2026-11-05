@@ -92,6 +92,25 @@ def test_data_validation(station_data):
     # Check that LogConc was created and populated
     assert 'LogConc' in df_wq_clean.columns
 
+def test_zero_flow_shift(station_data):
+    """Tests that zero-flow days get a finite LogQ from the EGRET shift (0.1% of mean Q)."""
+    df_wq, df_q = station_data
+    df_q = df_q.copy()
+    df_wq = df_wq.copy()
+    zero_date = df_wq.index[0]
+    df_q.loc[zero_date, 'Q'] = 0.0
+    df_wq.loc[zero_date, 'Q'] = 0.0
+
+    with pytest.warns(UserWarning, match="zero flow"):
+        df_wq_clean, df_q_clean = WRTDS()._prepare_data(df_wq, df_q)
+
+    shift = 0.001 * df_q['Q'].mean()
+    assert np.all(np.isfinite(df_q_clean['LogQ']))
+    assert np.allclose(df_q_clean['LogQ'], np.log(df_q['Q'] + shift))
+    assert df_wq_clean.loc[zero_date, 'LogQ'] == pytest.approx(np.log(shift))
+    # Q itself is left unchanged
+    assert df_q_clean.loc[zero_date, 'Q'] == 0.0
+
 def test_single_node_estimation(station_data):
     """
     Isolates and tests the Tobit regression for a single grid node, 
