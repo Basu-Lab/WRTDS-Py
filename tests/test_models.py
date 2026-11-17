@@ -113,3 +113,57 @@ def test_wrtds_predict_preserves_row_order(fitted_base_model, synthetic_data):
 
     assert preds.index.equals(shuffled.index)
     np.testing.assert_allclose(preds[["yHat", "SE", "ConcHat"]], expected[["yHat", "SE", "ConcHat"]])
+
+
+def test_wrtdsk_rejects_invalid_rho(fitted_base_model):
+    with pytest.raises(ValueError, match="rho"):
+        WRTDSK(fitted_base_model, rho=1.0)
+
+
+def test_wrtdsk_reproduces_uncensored_samples(fitted_base_model, synthetic_data):
+    df_wq, df_q = synthetic_data
+
+    result = WRTDSK(fitted_base_model, niter=5, seed=0).filter(df_wq, df_q, verbose=False)
+
+    uncensored = df_wq[df_wq["Uncen"] == 1]
+    np.testing.assert_allclose(result.loc[uncensored.index, "ConcKalman"], uncensored["Conc"], rtol=1e-10)
+
+
+def test_wrtdsk_draws_a_new_path_each_iteration(fitted_base_model, synthetic_data):
+    # Without censoring the gaps must still be random draws, not a fixed interpolation
+    df_wq, df_q = synthetic_data
+    uncensored = df_wq[df_wq["Uncen"] == 1]
+
+    a = WRTDSK(fitted_base_model, niter=1, seed=1).filter(uncensored, df_q, verbose=False)
+    b = WRTDSK(fitted_base_model, niter=1, seed=2).filter(uncensored, df_q, verbose=False)
+
+    gap_days = df_q.index.difference(uncensored.index)
+    assert not np.allclose(a.loc[gap_days, "ConcKalman"], b.loc[gap_days, "ConcKalman"])
+
+
+def test_wrtdsk_returns_to_wrtds_in_long_gaps(fitted_base_model, synthetic_data):
+    # Remove all samples from a 300-day window: far from both ends of the gap the
+    # AR(1) memory has decayed, so WRTDS-K should agree with classic WRTDS on average
+    df_wq, df_q = synthetic_data
+    gap_start, gap_end = pd.Timestamp("2018-06-01"), pd.Timestamp("2019-03-28")
+    outside_gap = (df_wq.index < gap_start) | (df_wq.index > gap_end)
+
+    result = WRTDSK(fitted_base_model, niter=500, seed=0).filter(df_wq[outside_gap], df_q, verbose=False)
+
+    mid_gap = result.loc[gap_start + pd.Timedelta(days=100) : gap_end - pd.Timedelta(days=100)]
+    ratio = mid_gap["ConcKalman"].mean() / mid_gap["ConcHat"].mean()
+    assert abs(ratio - 1.0) < 0.05, f"Mid-gap WRTDS-K / WRTDS ratio: {ratio:.3f}"
+
+
+def test_wrtdsk_seeding_is_local_and_reproducible(fitted_base_model, synthetic_data):
+    df_wq, df_q = synthetic_data
+
+    np.random.seed(123)
+    expected_global = np.random.random()
+    np.random.seed(123)
+
+    a = WRTDSK(fitted_base_model, niter=3, seed=7).filter(df_wq, df_q, verbose=False)
+    b = WRTDSK(fitted_base_model, niter=3, seed=np.random.default_rng(7)).filter(df_wq, df_q, verbose=False)
+
+    assert np.random.random() == expected_global  # global state untouched
+    pd.testing.assert_series_equal(a["ConcKalman"], b["ConcKalman"])

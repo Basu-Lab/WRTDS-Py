@@ -94,7 +94,7 @@ from wrtds_py import WRTDSK
 kalman = WRTDSK(
     base_model=model,
     rho=0.9,       # Daily correlation coefficient (decay factor)
-    niter=100,     # Monte Carlo iterations for censored samples
+    niter=200,     # Monte Carlo iterations (default 200, as in EGRET)
     seed=42        # Seed for reproducibility
 )
 

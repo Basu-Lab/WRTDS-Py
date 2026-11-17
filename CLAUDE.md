@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-*Last modified: 2026-11-05*
+*Last modified: 2026-11-17*
 
 ## Project
 
@@ -26,7 +26,7 @@ No linter/formatter is configured.
 `tests/test_r_reference.py` requires a working R installation with the `EGRET` package installed (it is called through `rpy2`). It runs EGRET's `modelEstimation` and `WRTDSKalman` live on the Choptank example (~30 s in total):
 - The session fixture `egret` returns an `EgretReference`: the Python inputs (`Q`, `LogQ`, `DecYear`, `Conc`, `Uncen`) kept apart from R's estimates (`ConcHat`, `ConcDay`, `GenConc`), so no R output reaches the Python models. EGRET's `DecYear` is passed through because it differs from what `prepare_data` computes by up to ~0.8 days.
 - Metrics take date-indexed Series and compare R and Python on the same rows (`_common_rows`).
-- Assertions are tolerance-based, not exact: no NaN Python estimates, Python RMSE/R² no worse than R, D_fluxbias within 1 percentage point, WRTDS-K correlation > 0.90 and relative MAE < 10%, D_ratio no further from 1 than R's + 0.05. WRTDS-K is compared on the daily series, since on sample days it reproduces the observations by construction.
+- Assertions are tolerance-based, not exact: no NaN Python estimates, Python RMSE/R² no worse than R, D_fluxbias within 1 percentage point, WRTDS-K (niter = 200 on both sides) correlation > 0.98, relative MAE < 4%, total flux within 1% of R, and mean bias within 3% on days more than 20 days from a sample; D_ratio no further from 1 than R's + 0.05. WRTDS-K is compared on the daily series, since on sample days it reproduces the observations by construction.
 
 ## Architecture
 
@@ -48,7 +48,7 @@ Public API is just `WRTDS` and `WRTDSK` (`src/wrtds_py/__init__.py`), plus `__ve
 5. `ConcHat = exp(yHat + σ²/2)` (log-normal bias correction).
 Any failure returns NaNs for that node instead of raising; since each NaN node affects the four surrounding cells of the interpolation, NaNs in the predictions usually point to failed nodes in `surface_`.
 
-**WRTDS-K (`models/kalman.py`).** Wraps an already-fitted `WRTDS`. Each of `niter` Monte Carlo iterations draws censored residuals from a truncated normal (upper bound = the censored residual), interpolates residuals to every daily time step weighted by `rho**days` from the nearest samples on each side, adds them to the daily `yHat`, and back-transforms using an SE scaled by `sqrt(1 − rho²)` (zero on days with an uncensored sample). `ConcKalman` is the mean over iterations. Seeding uses the global `np.random.seed`.
+**WRTDS-K (`models/kalman.py`).** Wraps an already-fitted `WRTDS` and follows EGRET's `WRTDSKalman` (see the WRTDS-K section of `docs/methodology.md`). Residuals are standardized, `z = (LogConc − yHat)/SE`, and treated as a unit-variance AR(1) with daily correlation `rho` (must be in [0, 1)); gaps are measured in whole days. Each of `niter` Monte Carlo iterations draws censored `z` from a truncated normal, picks one sample at random on days with several, and fills each gap between samples with an exact AR(1) bridge: an unconditional path from `scipy.signal.lfilter`, conditioned on both ends in closed form (vectorized, no per-day loop). Days before the first or after the last sample get independent N(0, 1), i.e. plain WRTDS. Concentration is `exp(yHat + z·SE)` with each day's SE and no `σ²/2` term (the Monte Carlo average is the bias correction); `ConcKalman` is the mean over iterations, so it equals the observation on uncensored sample days and tends to `ConcHat` mid-gap. `seed` (int, `np.random.Generator` or None) feeds a local `np.random.default_rng`; the global NumPy random state is never touched. Default `niter` is 200, as in EGRET.
 
 `flux.calc_flux` converts concentration × discharge to kg/day (`cms` or `cfs`); it is not yet wired into the models.
 

@@ -138,39 +138,59 @@ $$\hat{C} = \exp\left(\hat{y} + \frac{\sigma^2}{2}\right)$$
 
 # WRTDS-Kalman (WRTDS-K)
 
-While classic WRTDS is excellent at capturing long-term trends and smooth seasonal averages, it lacks short-term memory. If a river experiences an acute pollution event on Tuesday, introducing a Kalman filter helps model the likelihood that the river is still somewhat polluted on Wednesday. This is achieved by applying an autoregressive filter `AR(1)` to the residuals of the base WRTDS model.
+While classic WRTDS is excellent at capturing long-term trends and smooth seasonal averages, it lacks short-term memory. If a river experiences an acute pollution event on Tuesday, it is likely still somewhat polluted on Wednesday. WRTDS-K (Zhang & Hirsch, 2019) accounts for this serial correlation by treating the residuals of the base WRTDS model as a first-order autoregressive process, `AR(1)`, and using the sampled residuals to inform the unsampled days around them. The implementation follows `EGRET`'s `WRTDSKalman`.
 
 ### 1. The Core Idea
 
-WRTDS-K improves daily predictions by calculating the difference (residual) between the actual water quality observations and the base WRTDS predictions, and then interpolating those residuals across the unobserved days between samples.
+On every sample day the residual between the observation and the WRTDS prediction is known. On the days in between it is not, but because residuals are serially correlated, days close to a sample are likely to have a similar residual, and days far from any sample are no better known than in classic WRTDS. WRTDS-K draws many plausible daily residual series that are consistent with the samples, and averages the resulting concentrations.
 
-### 2. Handling Censored Data
+### 2. Standardized Residuals
 
-Because water quality data often contains left-censored values (measurements below the laboratory detection limit), we don't always have an exact observation to calculate a perfect residual. WRTDS-K solves this probabilistically:
+Residuals are standardized by the WRTDS standard error, so that they follow a standard normal distribution regardless of how uncertain the WRTDS surface is at that point:
 
-* **Uncensored Data:** The residual is exact: $e = y_{obs} - \hat{y}$.
-* **Censored Data:** WRTDS-K runs a Monte Carlo simulation (`niter` times, typically 100). In each iteration, it draws a random "true" value from a truncated normal distribution to compute a possible residual.
+$$z = \frac{\ln(c) - \hat{y}}{\text{SE}}$$
 
-### 3. The AR(1) Process
+On every day they are converted back to log-space with that day's own SE, so a residual carries over in relative terms when SE changes between a sample and the days around it.
 
-Having a set of residuals for water quality data, for every single day in the continuous streamflow record, the filter looks at the nearest preceding and succeeding residuals.
+### 3. Handling Censored Data
 
-The filter uses an autoregressive process `AR(1)` to interpolate the expected residual for each day. The correlation decays exponentially over time, controlled by the parameter $\rho$ (typically set to **0.9**). This means the "memory" or influence of a specific sampled residual decays by **10%** for each day that passes.
+For left-censored samples the true value is only known to lie below the detection limit, so the residual is not known exactly:
 
-As an example, for a previously calculated concentration value at time $t_{50}$ we find that the closest residuals are at $t_{40}$ and $t_{70}$. Therefore we can count the number of days between the target day and the nearest residuals: `days_l` = 10 and `days_r` = 20. Now, for these residuals we calculate their weights using the `AR(1)` decay function: `w_l` = $\rho^{\text{days\_l}}$ and `w_r` = $\rho^{\text{days\_r}}$. Finally, we calculate the expected residual for $t_{50}$ as a weighted average of the two nearest residuals:
+* **Uncensored samples:** $z$ is computed directly from the observation.
+* **Censored samples:** in each iteration, $z$ is drawn from a standard normal distribution truncated above at the standardized detection limit, $(\ln(c_{DL}) - \hat{y}) / \text{SE}$.
 
-$$e_{t_{50}} = \frac{w_l e_{t_{40}} + w_r e_{t_{70}}}{w_l + w_r}$$
+If a day has several samples, one of them is chosen at random in each iteration.
 
-And add it back to the base WRTDS prediction to get the final Kalman-adjusted prediction.
+### 4. The AR(1) Process
 
-$$\hat{y}_{adj} = \hat{y} + e_{t_{50}}$$
+The standardized residuals are modelled as a stationary AR(1) process with unit variance and a daily lag-one correlation $\rho$ (typically **0.9**):
 
-Where $\hat{y}_{adj}$ is the adjusted prediction in log-space. The standard error is also adjusted to account for the uncertainty introduced by the AR(1) process. The standard error of the adjusted prediction is calculated as:
+$$z_t = \rho \, z_{t-1} + \sqrt{1 - \rho^2} \, \varepsilon_t, \qquad \varepsilon_t \sim N(0, 1)$$
 
-$$\sigma_{adj} = \text{SE} \cdot \sqrt{\max(0, 1 - \rho^2)}$$
+so that the correlation between two days $d$ days apart is $\rho^d$. Distances are counted in whole days.
 
-Finally, the adjusted log-prediction is back-transformed to real units using the same bias correction as classic WRTDS:
+#### Gaps between two samples
 
-$$\hat{C} = \exp\left(\hat{y}_{adj} + \frac{\sigma_{adj}^2}{2}\right)$$
+For a gap of $N$ days between sampled days with residuals $z_0$ and $z_N$, the residual $k$ days into the gap is drawn from its distribution conditioned on both ends (an AR(1) "bridge"). That distribution is normal, with mean
 
-For the censored data, the estimated daily concentrations are averaged across all `niter` iterations to produce the final output. These new predictions are stored in the **`ConcKalman`** column.
+$$E[z_k \mid z_0, z_N] = \frac{(\rho^k - \rho^{2N-k}) \, z_0 + (\rho^{N-k} - \rho^{N+k}) \, z_N}{1 - \rho^{2N}}$$
+
+and a variance that is close to $1 - \rho^2$ next to a sample and rises towards 1 in the middle of long gaps. For example, with $\rho = 0.9$ and samples at days 40 and 70, day 50 ($k = 10$, $N = 30$) gets a mean of about $0.34 \, z_{40} + 0.11 \, z_{70}$: the sampled residuals still pull the estimate, but the weights do not sum to one, and in the middle of a long gap both vanish, so the estimate returns to classic WRTDS.
+
+The draw is computed exactly and for every day at once, without a day-by-day loop. An unconditional AR(1) path $v$ is simulated over the whole record (`scipy.signal.lfilter`) and then conditioned on the sampled residuals:
+
+$$z_k = v_k + w_l \, (z_0 - v_0) + w_r \, (z_N - v_N)$$
+
+where $w_l$ and $w_r$ are the two weights in the conditional mean above. Because the process is Gaussian, this has exactly the conditional distribution described above (it is equivalent to `EGRET`'s Cholesky-based `genmissing`).
+
+#### Before the first and after the last sample
+
+There is no sample on the far side to condition on. As in `EGRET`, these days get independent standard normal residuals, i.e. they reproduce classic WRTDS. `EGRET` also treats the first and last gaps this way when the record starts or ends on a sample day; `wrtds_py` only does so for days strictly before the first or after the last sample.
+
+### 5. Back-Transformation
+
+In each iteration the daily concentration is
+
+$$c_t = \exp\left(\hat{y}_t + z_t \cdot \text{SE}_t\right)$$
+
+and **`ConcKalman`** is the average over the `niter` iterations (default 200, as in `EGRET`; pass `seed` for reproducible results). The bias correction of classic WRTDS, $\exp(\sigma^2/2)$, is not applied: averaging the exponentiated draws already provides it, with the correct (smaller) variance near samples. On uncensored sample days $z_t$ is fixed, so `ConcKalman` equals the observed concentration. Far from any sample, `ConcKalman` converges to the classic WRTDS `ConcHat`.
