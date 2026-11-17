@@ -163,25 +163,38 @@ If a day has several samples, one of them is chosen at random in each iteration.
 
 ### 4. The AR(1) Process
 
-The standardized residuals are modelled as a stationary AR(1) process with unit variance and a daily lag-one correlation $\rho$ (typically **0.9**):
+The standardized residuals are modelled as an AR(1) process with a daily lag-one correlation $\rho$ (typically **0.9**):
 
 $$z_t = \rho \, z_{t-1} + \sqrt{1 - \rho^2} \, \varepsilon_t, \qquad \varepsilon_t \sim N(0, 1)$$
 
-so that the correlation between two days $d$ days apart is $\rho^d$. Distances are counted in whole days.
+Each day keeps a fraction $\rho$ of the previous day's residual and adds some new random noise, scaled so that $z_t$ stays standard normal. As a result, the correlation between two days $d$ days apart is $\rho^d$: a sample's influence decays by **10%** per day with $\rho = 0.9$. Distances are counted in whole days.
 
 #### Gaps between two samples
 
-For a gap of $N$ days between sampled days with residuals $z_0$ and $z_N$, the residual $k$ days into the gap is drawn from its distribution conditioned on both ends (an AR(1) "bridge"). That distribution is normal, with mean
+Every unsampled day between two consecutive samples is adjusted based on its distance to both of them. Take a gap of $N$ days between a sample on the left with residual $z_l$ and a sample on the right with residual $z_r$. The day $k$ days after the left sample (and $N - k$ days before the right one) gets the residual
 
-$$E[z_k \mid z_0, z_N] = \frac{(\rho^k - \rho^{2N-k}) \, z_0 + (\rho^{N-k} - \rho^{N+k}) \, z_N}{1 - \rho^{2N}}$$
+$$z_k = \underbrace{w_l \, z_l + w_r \, z_r}_{\text{expected residual}} + \underbrace{\delta_k}_{\text{random deviation}}$$
 
-and a variance that is close to $1 - \rho^2$ next to a sample and rises towards 1 in the middle of long gaps. For example, with $\rho = 0.9$ and samples at days 40 and 70, day 50 ($k = 10$, $N = 30$) gets a mean of about $0.34 \, z_{40} + 0.11 \, z_{70}$: the sampled residuals still pull the estimate, but the weights do not sum to one, and in the middle of a long gap both vanish, so the estimate returns to classic WRTDS.
+**Expected residual.** The weights of the two samples depend on the distances to them:
 
-The draw is computed exactly and for every day at once, without a day-by-day loop. An unconditional AR(1) path $v$ is simulated over the whole record (`scipy.signal.lfilter`) and then conditioned on the sampled residuals:
+$$w_l = \frac{\rho^k - \rho^{2N-k}}{1 - \rho^{2N}} \qquad w_r = \frac{\rho^{N-k} - \rho^{N+k}}{1 - \rho^{2N}}$$
 
-$$z_k = v_k + w_l \, (z_0 - v_0) + w_r \, (z_N - v_N)$$
+They behave like the decay $\rho^{\text{days}}$: next to a sample its weight is close to 1, and it falls off with the distance to that sample. Unlike a weighted average, the two weights do **not** sum to one, so in the middle of a long gap both vanish and the residual returns to 0, i.e. to classic WRTDS. For example, with $\rho = 0.9$ and samples on days 40 and 70 ($N = 30$):
 
-where $w_l$ and $w_r$ are the two weights in the conditional mean above. Because the process is Gaussian, this has exactly the conditional distribution described above (it is equivalent to `EGRET`'s Cholesky-based `genmissing`).
+| Day | $k$ | $w_l$ | $w_r$ |
+| --- | --- | --- | --- |
+| 41 | 1 | 0.90 | 0.01 |
+| 50 | 10 | 0.34 | 0.11 |
+| 55 | 15 | 0.20 | 0.20 |
+| 69 | 29 | 0.01 | 0.90 |
+
+These weights are the conditional mean of the AR(1) process given both samples (Zhang & Hirsch, 2019); the extra terms $\rho^{2N-k}$, $\rho^{N+k}$ and $\rho^{2N}$ only matter in short gaps, where the two samples are correlated with each other.
+
+**Random deviation.** The expected residual alone would be too smooth: on unsampled days the true residual is not known, and the further from a sample, the more uncertain it is. In each iteration, a random AR(1) path $u$ is simulated across the gap with the recursion above, and the part that its own end points explain is removed:
+
+$$\delta_k = u_k - (w_l \, u_0 + w_r \, u_N)$$
+
+This deviation is zero on both sample days and has a variance close to $1 - \rho^2$ next to a sample, rising towards 1 (the full WRTDS uncertainty) in the middle of long gaps. Together, $z_k$ is an exact random draw of the AR(1) process given both samples, equivalent to `EGRET`'s `genmissing`.
 
 #### Before the first and after the last sample
 

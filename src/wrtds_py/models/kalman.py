@@ -1,10 +1,37 @@
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from scipy.signal import lfilter
 from scipy.stats import truncnorm
 
 from wrtds_py.models.classic import WRTDS
+
+
+def _ar1_gap_residuals(z_left: float, z_right: float, gap_days: int, rho: float,
+                       rng: np.random.Generator) -> np.ndarray:
+    """Draw the standardized residuals on the days strictly between two samples.
+
+    `gap_days` is the number of days from the left sample to the right one. The draw is an
+    expected residual, set by the distance to each sample, plus a random AR(1) deviation.
+    """
+    k = np.arange(1, gap_days) # days since the left sample
+
+    # Expected residual: weights of the left and right samples. Each weight decays with the
+    # distance to its sample, and both vanish in the middle of long gaps (plain WRTDS)
+    denom = 1.0 - rho ** (2 * gap_days)
+    w_left = (rho ** k - rho ** (2 * gap_days - k)) / denom
+    w_right = (rho ** (gap_days - k) - rho ** (gap_days + k)) / denom
+    expected = w_left * z_left + w_right * z_right
+
+    # Random deviation: simulate a free AR(1) path across the gap and remove the part that
+    # its own end points explain, leaving noise that is zero at both samples
+    path = np.empty(gap_days + 1)
+    path[0] = rng.standard_normal()
+    innovations = rng.standard_normal(gap_days) * np.sqrt(1.0 - rho ** 2)
+    for t in range(1, gap_days + 1):
+        path[t] = rho * path[t - 1] + innovations[t - 1]
+    deviation = path[1:gap_days] - (w_left * path[0] + w_right * path[gap_days])
+
+    return expected + deviation
 
 class WRTDSK:
     def __init__(self, base_model: WRTDS, rho: float = 0.9, niter: int = 200,
@@ -66,31 +93,11 @@ class WRTDSK:
 
         # Days with at least one sample; `sample_of` maps each sample to its day in `sample_days`
         sample_days, sample_of = np.unique(day_wq, return_inverse=True)
-        n_days = len(sample_days)
-
-        # Classify every day of the record relative to the sampled days
-        left = np.searchsorted(sample_days, day_q, side='right') - 1 # last sampled day on or before
-        is_sample = (left >= 0) & (sample_days[np.clip(left, 0, None)] == day_q)
-        is_gap = ~is_sample & (left >= 0) & (left < n_days - 1) # strictly between two sampled days
-        is_outside = ~is_sample & ~is_gap # before the first or after the last sampled day
-
-        # AR(1) bridge weights: conditional mean of a unit-variance AR(1) at k days into a
-        # gap of N days, given its values at both ends, is w_l * z_0 + w_r * z_N
-        gap_l = left[is_gap]
-        gap_r = gap_l + 1
-        k = (day_q[is_gap] - sample_days[gap_l]).astype(float)
-        n = (sample_days[gap_r] - sample_days[gap_l]).astype(float)
-        rho = self.rho
-        denom = 1.0 - rho ** (2 * n)
-        w_l = (rho ** k - rho ** (2 * n - k)) / denom
-        w_r = (rho ** (n - k) - rho ** (n + k)) / denom
-
-        # Daily AR(1) path covering every day of the record (stationary, unit variance)
-        n_record = day_q.max() + 1
-        innovation_sd = np.sqrt(1.0 - rho ** 2)
+        n_sampled = len(sample_days)
 
         yhat_q = df_q_pred['yHat'].values
         se_q = df_q_pred['SE'].values
+        n_record = day_q.max() + 1 # days from the first to the last day of the record
 
         # Sampling residuals
         with tqdm(total=self.niter, disable=not verbose, desc="Running WRTDS-K", ascii=True) as pbar:
@@ -105,24 +112,19 @@ class WRTDSK:
                 _, first = np.unique(sample_of[order], return_index=True)
                 z_days = residuals_iter[order[first]]
 
-                # Unconditional AR(1) path: v[0] ~ N(0, 1), v[t] = rho * v[t-1] + sqrt(1 - rho^2) * eps[t]
-                eps = rng.standard_normal(n_record)
-                eps[0] /= innovation_sd
-                path = lfilter([innovation_sd], [1.0, -rho], eps)
-                path_days = path[sample_days]
+                # Standardized residual for every day of the record. Before the first and after
+                # the last sample there is no information, so they stay N(0, 1): plain WRTDS
+                z = rng.standard_normal(n_record)
+                z[sample_days] = z_days
 
-                z = np.empty(n_q)
-                z[is_sample] = z_days[left[is_sample]]
-                # Condition the path on both ends of each gap: an exact draw from the AR(1) bridge
-                z[is_gap] = (path[day_q[is_gap]]
-                             + w_l * (z_days[gap_l] - path_days[gap_l])
-                             + w_r * (z_days[gap_r] - path_days[gap_r]))
-                # Before the first and after the last sample there is no information: plain WRTDS
-                z[is_outside] = rng.standard_normal(is_outside.sum())
+                # Each gap between two consecutive samples is informed by both of them
+                for i in range(n_sampled - 1):
+                    left, right = sample_days[i], sample_days[i + 1]
+                    z[left + 1 : right] = _ar1_gap_residuals(z_days[i], z_days[i + 1], right - left, self.rho, rng)
 
                 # Rescale the standardized residuals by each day's SE and transform back to concentration.
                 # The Monte Carlo average provides the bias correction, so no exp(sigma^2 / 2) is applied.
-                conc += np.exp(yhat_q + z * se_q)
+                conc += np.exp(yhat_q + z[day_q] * se_q)
 
                 pbar.update(1)
 
