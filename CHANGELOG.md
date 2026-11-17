@@ -12,8 +12,12 @@ First stable release, published on PyPI.
 
 - `WRTDS`: classic WRTDS with a pre-computed prediction surface, fitted by weighted
   left-censored (Tobit) maximum likelihood with an analytic gradient.
-- `WRTDSK`: WRTDS-Kalman AR(1) residual smoothing with Monte Carlo simulation of censored
-  residuals.
+- `WRTDSK`: WRTDS-Kalman (Zhang & Hirsch, 2019), following `EGRET`'s `WRTDSKalman`.
+  Residuals are standardized by the WRTDS standard error, each gap between samples is filled
+  with an AR(1) path conditioned on the samples at both ends, and the result is averaged over
+  `niter` Monte Carlo iterations (default 200), which also simulate censored residuals from a
+  truncated normal. `seed` accepts an int or a `numpy.random.Generator` and does not change the
+  global NumPy random state.
 - Zero-flow days: if any day has `Q = 0`, `LogQ` is computed with 0.1% of the mean discharge
   added to every day, following `EGRET`; `Q` itself is unchanged.
 - Validation against USGS `EGRET` v3.0.11 on the Choptank River reference dataset.
