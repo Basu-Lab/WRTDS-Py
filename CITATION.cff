@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "wrtds-py: Weighted Regressions on Time, Discharge, and Season in Python"
+type: software
+authors:
+  - family-names: "Álvarez Chaves"
+    given-names: "Manuel"
+    email: "malvarez062@gmail.com"
+    # orcid: "https://orcid.org/XXXX-XXXX-XXXX-XXXX"  # TODO: add ORCID
+version: 1.0.0
+# date-released: "YYYY-MM-DD"  # TODO: set on release
+# doi: "10.5281/zenodo.XXXXXXX"  # TODO: add the Zenodo DOI once minted
+license: MIT
+repository-code: "https://github.com/Basu-Lab/WRTDS-Py"
+keywords:
+  - WRTDS
+  - WRTDS-Kalman
+  - EGRET
+  - water quality
+  - hydrology

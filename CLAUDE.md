@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-*Last modified: 2026-10-30*
+*Last modified: 2026-11-05*
 
 ## Project
 
@@ -30,10 +30,10 @@ No linter/formatter is configured.
 
 ## Architecture
 
-Public API is just `WRTDS` and `WRTDSK` (`src/wrtds_py/__init__.py`).
+Public API is just `WRTDS` and `WRTDSK` (`src/wrtds_py/__init__.py`), plus `__version__` read from the installed package metadata.
 
 **Data flow / column conventions.** `data.prepare_data` normalizes inputs and is the single place that defines the expected column names, mirroring EGRET's `Daily`/`Sample` frames:
-- `df_q` (daily discharge): needs `Q` or `LogQ`; gets `DecYear`, `LogQ`.
+- `df_q` (daily discharge): needs `Q` or `LogQ`; gets `DecYear`, `LogQ`. If any day has `Q = 0`, `LogQ` is computed from `Q + 0.001·mean(Q)` for every day (EGRET's zero-flow convention, with a `UserWarning`); `Q` itself is not modified.
 - `df_wq` (sparse samples): needs `Conc` and `Uncen` (1 = uncensored, 0 = left-censored at `Conc`); gets `LogConc`, `DecYear`, and `LogQ` mapped from `df_q` by date (error if any sample date lacks discharge).
 - A `DatetimeIndex` is required, or a `date`/`datetime`/`time`/`timestamp` column is promoted to the index.
 - Output columns: `yHat`, `SE`, `ConcHat` (from `WRTDS.predict`) and `ConcKalman` (from `WRTDSK.filter`).
@@ -54,5 +54,5 @@ Any failure returns NaNs for that node instead of raising; since each NaN node a
 
 ## Notes
 
-- `pyproject.toml` declares a `wrtds-py = "wrtds_py:main"` script, but no `main` function exists, and the project version (0.1.0) differs from the README's 0.9.
+- The version lives only in `pyproject.toml`. To release: bump it, update `CHANGELOG.md` and `CITATION.cff`, tag `vX.Y.Z`, and publish a GitHub release; `.github/workflows/publish.yml` checks the tag matches the version, runs the non-R tests, builds with `uv build`, and uploads to PyPI via Trusted Publishing.
 - `notebooks/` is gitignored; `docs/example.ipynb` is the tracked usage example.

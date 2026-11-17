@@ -1,6 +1,6 @@
 # wrtds-py
 
-[![Version: 0.9](https://img.shields.io/badge/version-0.9-success.svg)](#)
+[![PyPI version](https://img.shields.io/pypi/v/wrtds-py.svg)](https://pypi.org/project/wrtds-py/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -12,9 +12,9 @@ It is adapted from the official USGS [`EGRET`](https://github.com/DOI-USGS/EGRET
 
 ## Status
 
-**Current Version: 0.9 (Pre-release)**
+**Current Version: 1.0.0**
 
-`wrtds-py` is currently functional and tested against the USGS reference example (the Choptank River). We plan to archive this package on Zenodo to mint a citable DOI and evaluate publishing to PyPI in a future `v1.0` release. 
+`wrtds-py` is stable and validated against the USGS `EGRET` R package (v3.0.11) on its reference example (the Choptank River). Releases are published on [PyPI](https://pypi.org/project/wrtds-py/) and archived on Zenodo. See [CHANGELOG.md](https://github.com/Basu-Lab/WRTDS-Py/blob/main/CHANGELOG.md) for the release history.
 
 ## Key Features
 
@@ -26,34 +26,37 @@ It is adapted from the official USGS [`EGRET`](https://github.com/DOI-USGS/EGRET
 
 ## Background
 
-For a detailed explanation of the underlying statistical methods, including the design matrix of the linear model, left-censored (Tobit) maximum likelihood estimation, weighting functions, and the AR(1) smoother, see [docs/methodology.md](docs/methodology.md).
+For a detailed explanation of the underlying statistical methods, including the design matrix of the linear model, left-censored (Tobit) maximum likelihood estimation, weighting functions, and the AR(1) smoother, see [docs/methodology.md](https://github.com/Basu-Lab/WRTDS-Py/blob/main/docs/methodology.md).
 
 
 ## Installation
 
-*Note: As `wrtds-py` is not yet on PyPI, you must install it directly from the source repository.*
+`wrtds-py` requires Python 3.12 or newer and is available on [PyPI](https://pypi.org/project/wrtds-py/).
 
 ### Using `uv` (Recommended)
+
+```bash
+uv add wrtds-py
+```
+
+### Using standard `pip`
+
+```bash
+pip install wrtds-py
+```
+
+### From source
 
 ```bash
 git clone https://github.com/Basu-Lab/WRTDS-Py
 cd WRTDS-Py
 uv sync
 ```
-*(Or `uv pip install -e .` if you are installing it into an existing environment).*
-
-### Using standard `pip`
-
-```bash
-git clone https://github.com/Basu-Lab/WRTDS-Py
-cd WRTDS-Py
-pip install .
-```
 
 ---
 
 ## Quickstart
-Also have a look at the [example Jupyter notebook](docs/example.ipynb) for a more detailed demonstration.
+Also have a look at the [example Jupyter notebook](https://github.com/Basu-Lab/WRTDS-Py/blob/main/docs/example.ipynb) for a more detailed demonstration.
 
 ### 1. Classic WRTDS
 
@@ -102,15 +105,29 @@ print(df_kalman[["ConcHat", "ConcKalman"]].head())
 
 ## Testing & Benchmarking
 
-To run the test suite (including validation against reference outputs from USGS `EGRET` v3.0.11):
+To run the test suite from a source checkout:
 
 ```bash
 uv run pytest
 ```
 
+`tests/test_r_reference.py` validates the models against USGS `EGRET` v3.0.11 by running it live through `rpy2`, so it requires a working R installation with the `EGRET` package installed. To run only the pure-Python tests:
+
+```bash
+uv run pytest tests/test_components.py tests/test_models.py
+```
+
+## Citation
+
+If you use `wrtds-py` in your research, please cite it using the metadata in [CITATION.cff](https://github.com/Basu-Lab/WRTDS-Py/blob/main/CITATION.cff) (GitHub's "Cite this repository" button generates APA and BibTeX entries from it):
+
+> Álvarez Chaves, M. (2026). *wrtds-py: Weighted Regressions on Time, Discharge, and Season in Python* (Version 1.0.0) [Computer software]. https://doi.org/10.5281/zenodo.XXXXXXX <!-- TODO: replace with the Zenodo DOI -->
+
+Please also cite the original WRTDS and WRTDS-K publications listed under [References](#references).
+
 ## License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the MIT License. See [`LICENSE`](https://github.com/Basu-Lab/WRTDS-Py/blob/main/LICENSE) for more information.
 
 ## References
 

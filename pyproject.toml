@@ -1,12 +1,34 @@
 [project]
 name = "wrtds-py"
-version = "0.1.0"
-description = "A simple package implementing the WRTDS model for water quality data"
+version = "1.0.0"
+description = "Python implementation of the WRTDS and WRTDS-Kalman water quality models, adapted from the USGS EGRET R package"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Manuel Alvarez Chaves", email = "malvarez062@gmail.com" }
 ]
 requires-python = ">=3.12"
+keywords = [
+    "WRTDS",
+    "WRTDS-Kalman",
+    "EGRET",
+    "water quality",
+    "hydrology",
+    "concentration",
+    "flux",
+    "time series",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Hydrology",
+    "Typing :: Typed",
+]
 dependencies = [
     "numpy>=2.4.6",
     "pandas>=3.0.3",
@@ -14,8 +36,14 @@ dependencies = [
     "tqdm>=4.68.4",
 ]
 
-[project.scripts]
-wrtds-py = "wrtds_py:main"
+[project.urls]
+Homepage = "https://github.com/Basu-Lab/WRTDS-Py"
+Repository = "https://github.com/Basu-Lab/WRTDS-Py"
+Issues = "https://github.com/Basu-Lab/WRTDS-Py/issues"
+Changelog = "https://github.com/Basu-Lab/WRTDS-Py/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/Basu-Lab/WRTDS-Py/blob/main/docs/methodology.md"
+# TODO: uncomment once the Zenodo DOI has been minted
+# DOI = "https://doi.org/10.5281/zenodo.XXXXXXX"
 
 [build-system]
 requires = ["uv_build>=0.11.22,<0.12.0"]

@@ -27,7 +27,7 @@ For this Python version we use very similar data structures to those used in the
 | --- | --- |
 | **`Date`** | pandas `DatetimeIndex` representing every continuous day. |
 | **`Q`** | Raw daily mean streamflow (discharge) in any units (e.g. cfs, m³/s). |
-| **`LogQ`** | Natural logarithm of streamflow ($\ln(Q)$). Computed automatically from `Q` if not supplied. |
+| **`LogQ`** | Natural logarithm of streamflow ($\ln(Q)$). Computed automatically from `Q` if not supplied. If any day has zero flow, 0.1% of the mean discharge is added to every day before taking the logarithm, as in `EGRET` (a warning is issued; `Q` itself is unchanged). |
 | **`DecYear`** | Decimal year representation of the date (e.g., 2010.5 for July 1). This is the `time` variable. Computed automatically from the index if not supplied. |
 
 ### `df_wq`: Sparse Water Quality Record
