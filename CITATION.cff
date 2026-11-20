@@ -8,7 +8,7 @@ authors:
     email: "malvarez062@gmail.com"
     # orcid: "https://orcid.org/XXXX-XXXX-XXXX-XXXX"  # TODO: add ORCID
 version: 1.0.0
-# date-released: "YYYY-MM-DD"  # TODO: set on release
+date-released: "2026-11-20"
 # doi: "10.5281/zenodo.XXXXXXX"  # TODO: add the Zenodo DOI once minted
 license: MIT
 repository-code: "https://github.com/Basu-Lab/WRTDS-Py"
