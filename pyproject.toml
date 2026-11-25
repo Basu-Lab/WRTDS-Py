@@ -42,8 +42,7 @@ Repository = "https://github.com/Basu-Lab/WRTDS-Py"
 Issues = "https://github.com/Basu-Lab/WRTDS-Py/issues"
 Changelog = "https://github.com/Basu-Lab/WRTDS-Py/blob/main/CHANGELOG.md"
 Documentation = "https://github.com/Basu-Lab/WRTDS-Py/blob/main/docs/methodology.md"
-# TODO: uncomment once the Zenodo DOI has been minted
-# DOI = "https://doi.org/10.5281/zenodo.XXXXXXX"
+DOI = "https://doi.org/10.5281/zenodo.24545604"
 
 [build-system]
 requires = ["uv_build>=0.11.22,<0.12.0"]

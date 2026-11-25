@@ -6,10 +6,10 @@ authors:
   - family-names: "Álvarez Chaves"
     given-names: "Manuel"
     email: "malvarez062@gmail.com"
-    # orcid: "https://orcid.org/XXXX-XXXX-XXXX-XXXX"  # TODO: add ORCID
+    orcid: "https://orcid.org/0009-0002-8990-3785"
 version: 1.0.0
 date-released: "2026-11-25"
-# doi: "10.5281/zenodo.XXXXXXX"  # TODO: add the Zenodo DOI once minted
+doi: "10.5281/zenodo.24545604"
 license: MIT
 repository-code: "https://github.com/Basu-Lab/WRTDS-Py"
 keywords:

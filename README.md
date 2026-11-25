@@ -3,6 +3,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/wrtds-py.svg)](https://pypi.org/project/wrtds-py/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24545604.svg)](https://doi.org/10.5281/zenodo.24545604)
 
 `wrtds-py` is a Python implementation of the **Weighted Regressions on Time, Discharge, and Season (WRTDS)** model, including the **WRTDS-Kalman (WRTDS-K)** autoregressive filter. 
 
@@ -14,7 +15,7 @@ It is adapted from the official USGS [`EGRET`](https://github.com/DOI-USGS/EGRET
 
 **Current Version: 1.0.0**
 
-`wrtds-py` is stable and validated against the USGS `EGRET` R package (v3.0.11) on its reference example (the Choptank River). Releases are published on [PyPI](https://pypi.org/project/wrtds-py/) and archived on Zenodo. See [CHANGELOG.md](https://github.com/Basu-Lab/WRTDS-Py/blob/main/CHANGELOG.md) for the release history.
+`wrtds-py` is stable and validated against the USGS `EGRET` R package (v3.0.11) on its reference example (the Choptank River). Releases are published on [PyPI](https://pypi.org/project/wrtds-py/) and archived on [Zenodo](https://doi.org/10.5281/zenodo.24545604). See [CHANGELOG.md](https://github.com/Basu-Lab/WRTDS-Py/blob/main/CHANGELOG.md) for the release history.
 
 ## Key Features
 
@@ -121,7 +122,7 @@ uv run pytest tests/test_components.py tests/test_models.py
 
 If you use `wrtds-py` in your research, please cite it using the metadata in [CITATION.cff](https://github.com/Basu-Lab/WRTDS-Py/blob/main/CITATION.cff) (GitHub's "Cite this repository" button generates APA and BibTeX entries from it):
 
-> Álvarez Chaves, M. (2026). *wrtds-py: Weighted Regressions on Time, Discharge, and Season in Python* (Version 1.0.0) [Computer software]. https://doi.org/10.5281/zenodo.XXXXXXX <!-- TODO: replace with the Zenodo DOI -->
+> Álvarez Chaves, M. (2026). *wrtds-py: Weighted Regressions on Time, Discharge, and Season in Python* (Version 1.0.0) [Computer software]. https://doi.org/10.5281/zenodo.24545604
 
 Please also cite the original WRTDS and WRTDS-K publications listed under [References](#references).
 
