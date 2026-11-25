@@ -16,7 +16,7 @@ from rpy2.robjects.packages import importr
 
 from wrtds_py import WRTDS, WRTDSK
 
-RHO, NITER, SEED = 0.9, 100, 42
+RHO, NITER, SEED = 0.9, 200, 42
 
 
 @dataclass(frozen=True)
@@ -130,20 +130,34 @@ def test_classic_wrtds_matches_r(egret: EgretReference, py_model: WRTDS):
 
 def test_kalman_filter_matches_r(egret: EgretReference, py_kalman: pd.Series):
     # On sample days WRTDS-K reproduces the observations by construction, so the
-    # comparison is made on the full daily series instead
-    r_daily, py_daily = _common_rows(egret.conc_kalman, py_kalman)
+    # comparison is made on the full daily series instead. The tolerances leave room
+    # for the base WRTDS surfaces differing (Python's fit is slightly better than R's)
+    # and for Monte Carlo noise on both sides.
+    r_daily, py_daily, q = _common_rows(egret.conc_kalman, py_kalman, egret.df_q["Q"])
 
     corr = np.corrcoef(r_daily, py_daily)[0, 1]
     relative_mae = np.mean(np.abs(r_daily - py_daily)) / r_daily.mean()
+    flux_diff = (py_daily * q).sum() / (r_daily * q).sum() - 1
     ratio_r, ratio_py = std_ratio(egret.obs, egret.conc_kalman), std_ratio(egret.obs, py_kalman)
 
+    # Bias on days far from any sample, where the AR(1) memory should have decayed
+    sample_days = np.unique((egret.df_wq.index - r_daily.index[0]).days)
+    days = (r_daily.index - r_daily.index[0]).days.to_numpy()
+    nearest = np.clip(np.searchsorted(sample_days, days), 1, len(sample_days) - 1)
+    distance = np.minimum(np.abs(days - sample_days[nearest - 1]), np.abs(sample_days[nearest] - days))
+    far = distance > 20
+    far_bias = np.mean((py_daily[far] - r_daily[far]) / r_daily[far])
+
     print(f"\n--- WRTDS-K ({len(r_daily)} days compared) ---")
-    print(f"R vs Python -> Corr: {corr:.3f} | Relative MAE: {relative_mae:.2%}")
+    print(f"R vs Python -> Corr: {corr:.3f} | Relative MAE: {relative_mae:.2%} | Flux: {flux_diff:+.2%}")
+    print(f"Days > 20 from a sample ({far.sum()}) -> Bias: {far_bias:+.2%}")
     print(f"D_ratio     -> R: {ratio_r:.3f} | Python: {ratio_py:.3f}")
 
     assert py_kalman.notna().all(), f"{py_kalman.isna().sum()} Python WRTDS-K estimates are NaN"
-    assert corr > 0.90, f"Kalman correlation too low: {corr:.4f}"
-    assert relative_mae < 0.10, f"Kalman relative error too high: {relative_mae:.2%}"
+    assert corr > 0.98, f"Kalman correlation too low: {corr:.4f}"
+    assert relative_mae < 0.04, f"Kalman relative error too high: {relative_mae:.2%}"
+    assert abs(flux_diff) < 0.01, f"Kalman total flux diverges from R: {flux_diff:+.2%}"
+    assert abs(far_bias) < 0.03, f"Kalman bias far from samples: {far_bias:+.2%}"
     # Python's D_ratio may be closer to the ideal of 1.0 than R's, but not much further from it
     assert abs(ratio_py - 1.0) <= abs(ratio_r - 1.0) + 0.05, (
         f"Python D_ratio is further from 1.0 than R (Py: {ratio_py:.3f}, R: {ratio_r:.3f})"
